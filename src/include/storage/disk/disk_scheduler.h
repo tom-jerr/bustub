@@ -12,12 +12,19 @@
 
 #pragma once
 
+#include <array>   // NOLINT
 #include <future>  // NOLINT
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <thread>  // NOLINT
 
+#include <readerwriterqueue/readerwriterqueue.h>
 #include "common/channel.h"
+#include "common/config.h"
+#include "common/lock_free_promise.h"
 #include "storage/disk/disk_manager.h"
+#define THREAD_NUM 1
 
 namespace bustub {
 
@@ -40,6 +47,23 @@ struct DiskRequest {
 
   /** Callback used to signal to the request issuer when the request has been completed. */
   std::promise<bool> callback_;
+  // LockFreePromise<bool> callback_;
+
+  // size_t seq_;
+  // void SetSeq(size_t seq) { seq_ = seq; }
+  // /**
+  //  * @brief Construct a new Disk Request object
+  //  *
+  //  * @param is_write
+  //  * @param data
+  //  * @param page_id
+  //  * @param callback
+  //  */
+  // DiskRequest(bool is_write, char *data, page_id_t page_id, LockFreePromise<bool> callback)
+  //     : is_write_(is_write), data_(data), page_id_(page_id), callback_(std::move(callback)) {}
+
+  // DiskRequest(bool is_write, char *data, page_id_t page_id, LockFreePromise<bool> callback, size_t seq)
+  //     : is_write_(is_write), data_(data), page_id_(page_id), callback_(std::move(callback)), seq_(seq) {}
 };
 
 /**
@@ -81,7 +105,7 @@ class DiskScheduler {
    *
    * @return std::promise<bool>
    */
-  auto CreatePromise() -> DiskSchedulerPromise { return {}; };
+  auto CreatePromise() -> DiskSchedulerPromise { return DiskSchedulerPromise(); };
 
   /**
    * @brief Increases the size of the database file to fit the specified number of pages.
@@ -108,7 +132,12 @@ class DiskScheduler {
   /** A shared queue to concurrently schedule and process requests. When the DiskScheduler's destructor is called,
    * `std::nullopt` is put into the queue to signal to the background thread to stop execution. */
   Channel<std::optional<DiskRequest>> request_queue_;
+  // TODO(LZY):考虑使用moodycamel::BlockingReaderWriterQueue以及读写请求分离
+  // moodycamel::ReaderWriterQueue<std::optional<DiskRequest>> request_queue_;
   /** The background thread responsible for issuing scheduled requests to the disk manager. */
   std::optional<std::thread> background_thread_;
+  // std::array<std::optional<std::thread>, THREAD_NUM> thread_pool_;  // 使用定长的线程池
+  std::array<page_id_t, THREAD_NUM> thread_page_;
+  std::array<std::shared_mutex, THREAD_NUM> thread_mutex_;
 };
 }  // namespace bustub

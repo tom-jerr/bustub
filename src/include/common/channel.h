@@ -28,6 +28,23 @@ class Channel {
   Channel() = default;
   ~Channel() = default;
 
+  Channel(const Channel &other) = delete;
+  Channel &operator=(const Channel &other) = delete;
+
+  Channel(Channel &&other) {
+    std::lock_guard<std::mutex> lk(other.m_);
+    q_ = std::move(other.q_);
+  }
+
+  Channel &operator=(Channel &&other) {
+    if (this != &other) {
+      std::lock(m_, other.m_);
+      std::lock_guard<std::mutex> lk_this(m_, std::adopt_lock);
+      std::lock_guard<std::mutex> lk_other(other.m_, std::adopt_lock);
+      q_ = std::move(other.q_);
+    }
+    return *this;
+  }
   /**
    * @brief Inserts an element into a shared queue.
    *

@@ -68,6 +68,12 @@ class FrameHeader {
   auto GetData() const -> const char *;
   auto GetDataMut() -> char *;
   void Reset();
+  auto GetPinCount() -> size_t;
+  auto GetCurrPageId() -> page_id_t;
+  void SetCurrPageId(page_id_t page_id) { current_page_id_ = page_id; }
+  auto IsDirty() -> bool;
+  void FetchAdd();
+  void FetchSub();
 
   /** @brief The frame ID / index of the frame this header represents. */
   const frame_id_t frame_id_;
@@ -76,7 +82,7 @@ class FrameHeader {
   std::shared_mutex rwlatch_;
 
   /** @brief The number of pins on this frame keeping the page in memory. */
-  std::atomic<size_t> pin_count_;
+  std::atomic<size_t> pin_count_{0};
 
   /** @brief The dirty flag. */
   bool is_dirty_;
@@ -95,6 +101,7 @@ class FrameHeader {
    * currently storing. This might allow you to skip searching for the corresponding (page ID, frame ID) pair somewhere
    * else in the buffer pool manager...
    */
+  page_id_t current_page_id_{INVALID_PAGE_ID};
 };
 
 /**
@@ -116,8 +123,8 @@ class BufferPoolManager {
   auto Size() const -> size_t;
   auto NewPage() -> page_id_t;
   auto DeletePage(page_id_t page_id) -> bool;
-  auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
-      -> std::optional<WritePageGuard>;
+  auto CheckedWritePage(page_id_t page_id,
+                        AccessType access_type = AccessType::Unknown) -> std::optional<WritePageGuard>;
   auto CheckedReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> std::optional<ReadPageGuard>;
   auto WritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> WritePageGuard;
   auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
@@ -130,7 +137,7 @@ class BufferPoolManager {
   const size_t num_frames_;
 
   /** @brief The next page ID to be allocated.  */
-  std::atomic<page_id_t> next_page_id_;
+  std::atomic<page_id_t> next_page_id_{0};
 
   /**
    * @brief The latch protecting the buffer pool's inner data structures.
@@ -170,5 +177,22 @@ class BufferPoolManager {
    * stored inside of it. Additionally, you may also want to implement a helper function that returns either a shared
    * pointer to a `FrameHeader` that already has a page's data stored inside of it, or an index to said `FrameHeader`.
    */
+ private:
+  /**
+   * @brief Get the Free Frame object
+   *
+   * @return std::optional<frame_id_t>
+   */
+  auto GetFreeFrame() -> std::optional<frame_id_t>;
+  /**
+   * @brief Get the Evicted Frame object
+   *
+   * @return std::optional<frame_id_t>
+   */
+  auto GetEvictedFrame() -> std::optional<frame_id_t>;
+
+  void FlushEvictedFrame(frame_id_t frame_id);
+
+  void SetNewFrame(page_id_t page_id, frame_id_t frame_id);
 };
 }  // namespace bustub
