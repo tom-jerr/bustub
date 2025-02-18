@@ -426,4 +426,56 @@ TEST(BufferPoolManagerTest, EvictableTest) {
   }
 }
 
+// TEST(BufferPoolManagerTest, DeletePageTest) {
+//   auto disk_manager = std::make_shared<DiskManager>(db_fname);
+//   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+
+//   page_id_t pid1, pid2, pid3;
+//   pid1 = bpm->NewPage();  // 创建一个新页面
+//   pid2 = bpm->NewPage();  // 创建另一个新页面
+//   pid3 = bpm->NewPage();  // 创建第三个新页面
+
+//   char str[] = "Hello, world!";
+
+//   // 写入数据到第一个页面
+//   {
+//     auto guard = bpm->WritePage(pid1);
+//     char *data = guard.GetDataMut();
+//     snprintf(data, sizeof(str), "%s", str);
+//     EXPECT_STREQ(data, str);
+//   }
+
+//   // 测试删除一个存在的页面
+//   {
+//     EXPECT_TRUE(bpm->DeletePage(pid1));   // 删除第一个页面
+//     EXPECT_FALSE(bpm->DeletePage(pid1));  // 再次删除同一个页面，应该失败
+//   }
+
+//   // 测试删除一个不存在的页面
+//   {
+//     page_id_t non_existent_pid = 9999;                // 假设 9999 是一个不存在的页面 ID
+//     EXPECT_FALSE(bpm->DeletePage(non_existent_pid));  // 删除不存在的页面，应该失败
+//   }
+
+//   // 测试删除一个 pin_count > 0 的页面
+//   {
+//     // 将第二个页面锁定（增加 pin_count）
+//     auto guard = bpm->WritePage(pid2);
+//     EXPECT_FALSE(bpm->DeletePage(pid2));  // 尝试删除被锁定的页面，应该失败
+
+//     // 释放页面（减少 pin_count）
+//     guard.Drop();
+//     EXPECT_TRUE(bpm->DeletePage(pid2));  // 现在可以删除
+//   }
+
+//   // 测试删除第三个页面（正常情况）
+//   {
+//     EXPECT_TRUE(bpm->DeletePage(pid3));  // 删除第三个页面
+//   }
+
+//   // 清理：删除所有页面（确保测试文件被清理）
+//   disk_manager->ShutDown();
+//   remove(db_fname);
+// }
+
 }  // namespace bustub

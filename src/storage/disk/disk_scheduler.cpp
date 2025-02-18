@@ -15,7 +15,6 @@
 #include <optional>
 #include <shared_mutex>
 #include "common/exception.h"
-#include "common/lock_free_promise.h"
 #include "storage/disk/disk_manager.h"
 
 namespace bustub {

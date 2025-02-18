@@ -12,12 +12,11 @@
 
 #pragma once
 
-#include <limits>
+#include <cstddef>
 #include <list>
 #include <mutex>  // NOLINT
 #include <optional>
 #include <unordered_map>
-#include <vector>
 
 #include "common/config.h"
 #include "common/macros.h"
@@ -32,7 +31,7 @@ class LRUKNode {
   explicit LRUKNode(size_t k, frame_id_t fid);
   explicit LRUKNode(size_t k, frame_id_t fid, size_t current_timestamp);
 
-  frame_id_t Fid() { return fid_; }
+  auto Fid() -> frame_id_t { return fid_; }
   /**
    * @brief 增加该节点的访问次数，如果超过K次，驱逐最远的访问时间
    *
@@ -40,22 +39,22 @@ class LRUKNode {
    * @return true
    * @return false
    */
-  bool AccessNode(size_t current_timestamp);
+  auto AccessNode(size_t current_timestamp) -> bool;
   /**
    * @brief 计算当前时间戳与最近k次访问的时间戳的差值
    *
    * @param current_timestamp
    * @return size_t
    */
-  size_t BackwardKDistance(size_t current_timestamp);
+  auto BackwardKDistance(size_t current_timestamp) -> size_t;
   /**
    * @brief Get the Last Access Time object
    *
    * @return size_t
    */
-  size_t GetLastAccessTime() { return history_.front(); }
+  auto GetLastAccessTime() -> size_t { return history_.back(); }
 
-  bool IsEvictable() { return is_evictable_; }
+  auto IsEvictable() -> bool { return is_evictable_; }
 
   void SetEvictable(bool set_evictable) { is_evictable_ = set_evictable; }
 

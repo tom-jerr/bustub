@@ -13,6 +13,7 @@
 #include "buffer/lru_k_replacer.h"
 #include <algorithm>
 #include <mutex>
+#include <vector>
 #include "common/config.h"
 #include "common/exception.h"
 
@@ -24,7 +25,7 @@ LRUKNode::LRUKNode(size_t k, frame_id_t fid, size_t current_timestamp) : k_(k), 
   history_.push_front(current_timestamp);
 }
 
-bool LRUKNode::AccessNode(size_t current_timestamp) {
+auto LRUKNode::AccessNode(size_t current_timestamp) -> bool {
   if (history_.size() == k_) {
     history_.pop_back();
   }
@@ -32,7 +33,7 @@ bool LRUKNode::AccessNode(size_t current_timestamp) {
   return true;
 }
 
-size_t LRUKNode::BackwardKDistance(size_t current_timestamp) {
+auto LRUKNode::BackwardKDistance(size_t current_timestamp) -> size_t {
   if (history_.size() < k_) {
     return std::numeric_limits<size_t>::max();
   }
@@ -99,7 +100,6 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
   }
 
   // 驱逐后对node_store进行处理
-
   node_store_.erase(ret);  // evict this frame
   curr_size_--;
   return ret;

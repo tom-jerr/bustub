@@ -118,5 +118,25 @@ TEST(LRUKReplacerTest, SampleTest) {
   lru_replacer.SetEvictable(6, false);
   lru_replacer.SetEvictable(6, true);
 }
+TEST(LRUKReplacerTest, EvictTest) {
+  LRUKReplacer lru_replacer(10, 3);
+
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(2);
+  lru_replacer.RecordAccess(3);
+  lru_replacer.RecordAccess(4);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(2);
+  lru_replacer.RecordAccess(3);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(2);
+  lru_replacer.SetEvictable(1, true);
+  lru_replacer.SetEvictable(2, true);
+  lru_replacer.SetEvictable(3, true);
+  lru_replacer.SetEvictable(4, true);
+  auto frame = lru_replacer.Evict();
+  ASSERT_EQ(true, frame.has_value());
+  ASSERT_EQ(3, frame.value());
+}
 
 }  // namespace bustub

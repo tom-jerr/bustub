@@ -14,7 +14,7 @@
 
 #include <array>   // NOLINT
 #include <future>  // NOLINT
-#include <mutex>
+
 #include <optional>
 #include <shared_mutex>
 #include <thread>  // NOLINT
@@ -22,9 +22,7 @@
 #include <readerwriterqueue/readerwriterqueue.h>
 #include "common/channel.h"
 #include "common/config.h"
-#include "common/lock_free_promise.h"
 #include "storage/disk/disk_manager.h"
-#define THREAD_NUM 1
 
 namespace bustub {
 
@@ -105,7 +103,7 @@ class DiskScheduler {
    *
    * @return std::promise<bool>
    */
-  auto CreatePromise() -> DiskSchedulerPromise { return DiskSchedulerPromise(); };
+  auto CreatePromise() -> DiskSchedulerPromise { return DiskSchedulerPromise{}; };
 
   /**
    * @brief Increases the size of the database file to fit the specified number of pages.
@@ -137,7 +135,7 @@ class DiskScheduler {
   /** The background thread responsible for issuing scheduled requests to the disk manager. */
   std::optional<std::thread> background_thread_;
   // std::array<std::optional<std::thread>, THREAD_NUM> thread_pool_;  // 使用定长的线程池
-  std::array<page_id_t, THREAD_NUM> thread_page_;
-  std::array<std::shared_mutex, THREAD_NUM> thread_mutex_;
+  [[maybe_unused]] std::array<page_id_t, 1> thread_page_;
+  [[maybe_unused]] std::array<std::shared_mutex, 1> thread_mutex_;
 };
 }  // namespace bustub

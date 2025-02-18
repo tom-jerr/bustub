@@ -11,8 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "storage/page/page_guard.h"
+#include <memory>
 #include <mutex>
 #include "common/config.h"
+#include "storage/disk/disk_scheduler.h"
 
 namespace bustub {
 
@@ -31,7 +33,7 @@ namespace bustub {
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  frame_->rwlatch_.lock_shared();
+  // frame_->rwlatch_.lock_shared();
   replacer_->SetEvictable(frame_->frame_id_, false);
   is_valid_ = true;
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
@@ -132,18 +134,20 @@ auto ReadPageGuard::IsDirty() const -> bool {
 void ReadPageGuard::Drop() {
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
   if (is_valid_) {
+    frame_->rwlatch_.unlock_shared();
+    std::unique_lock latch(*bpm_latch_);
     // 显式清除所有资源
-    is_valid_ = false;
+
     frame_->FetchSub();
     if (frame_->GetPinCount() == 0) {
       // frame_->current_page_id_ = INVALID_PAGE_ID;
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
 
-    frame_->rwlatch_.unlock_shared();
     replacer_.reset();
     frame_.reset();
     bpm_latch_.reset();
+    is_valid_ = false;
   }
 }
 
@@ -169,7 +173,23 @@ ReadPageGuard::~ReadPageGuard() { Drop(); }
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  frame_->rwlatch_.lock();
+  // frame_->rwlatch_.lock();
+  replacer_->SetEvictable(frame_->frame_id_, false);
+  frame_->is_dirty_ = true;
+  is_valid_ = true;
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+}
+
+WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
+                               std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
+                               std::unique_ptr<DiskScheduler> disk_scheduler)
+    : page_id_(page_id),
+      frame_(std::move(frame)),
+      replacer_(std::move(replacer)),
+      bpm_latch_(std::move(bpm_latch)),
+      disk_scheduler_(disk_scheduler.get()) {
+  // frame_->rwlatch_.lock();
+  frame_->is_dirty_ = true;
   replacer_->SetEvictable(frame_->frame_id_, false);
   is_valid_ = true;
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
@@ -197,8 +217,6 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
   replacer_ = std::move(that.replacer_);
   bpm_latch_ = std::move(that.bpm_latch_);
   is_valid_ = that.is_valid_;
-  // replacer_->RecordAccess(frame_->frame_id_);
-  // replacer_->SetEvictable(frame_->frame_id_, false);
   that.is_valid_ = false;
 }
 
@@ -226,8 +244,6 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   replacer_ = std::move(that.replacer_);
   bpm_latch_ = std::move(that.bpm_latch_);
   is_valid_ = that.is_valid_;
-  // replacer_->RecordAccess(frame_->frame_id_);
-  // replacer_->SetEvictable(frame_->frame_id_, false);
   that.is_valid_ = false;
 
   return *this;
@@ -279,20 +295,34 @@ auto WritePageGuard::IsDirty() const -> bool {
  */
 void WritePageGuard::Drop() {
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
-  // std::unique_lock<std::mutex> latch(*bpm_latch_);
+
   if (is_valid_) {
+    frame_->rwlatch_.unlock();
+    std::unique_lock<std::mutex> latch(*bpm_latch_);
+
     // 显式清除所有资源
-    is_valid_ = false;
     frame_->FetchSub();
     if (frame_->GetPinCount() == 0) {
       // frame_->current_page_id_ = INVALID_PAGE_ID;
       replacer_->SetEvictable(frame_->frame_id_, true);
+      // if (frame_->is_dirty_) {
+      //   auto data = frame_->GetDataMut();
+      //   auto promise = disk_scheduler_->CreatePromise();
+      //   auto future = promise.get_future();
+      //   DiskRequest r{true, data, page_id_, std::move(promise)};
+      //   disk_scheduler_->Schedule(std::move(r));
+      //   while (future.get() == false) {
+      //     continue;
+      //   }
+      //   // frame_->Reset();
+      // }
     }
     // replacer_->SetEvictable(frame_->frame_id_, true);
-    frame_->rwlatch_.unlock();
+
     replacer_.reset();
     frame_.reset();
     bpm_latch_.reset();
+    is_valid_ = false;
   }
 }
 

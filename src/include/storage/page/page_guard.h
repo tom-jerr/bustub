@@ -15,6 +15,7 @@
 #include <memory>
 
 #include "buffer/buffer_pool_manager.h"
+#include "storage/disk/disk_scheduler.h"
 #include "storage/page/page.h"
 
 namespace bustub {
@@ -166,7 +167,8 @@ class WritePageGuard {
   /** @brief Only the buffer pool manager is allowed to construct a valid `WritePageGuard.` */
   explicit WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame, std::shared_ptr<LRUKReplacer> replacer,
                           std::shared_ptr<std::mutex> bpm_latch);
-
+  explicit WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame, std::shared_ptr<LRUKReplacer> replacer,
+                          std::shared_ptr<std::mutex> bpm_latch, std::unique_ptr<DiskScheduler> disk_scheduler);
   /** @brief The page ID of the page we are guarding. */
   page_id_t page_id_;
 
@@ -211,6 +213,8 @@ class WritePageGuard {
    * If you want extra (non-existent) style points, and you want to be extra fancy, then you can look into the
    * `std::unique_lock` type and use that for the latching mechanism instead of manually calling `lock` and `unlock`.
    */
+  // 使用磁盘调度进行写回操作
+  DiskScheduler *disk_scheduler_;
 };
 
 }  // namespace bustub
