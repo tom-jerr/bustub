@@ -123,8 +123,8 @@ class BufferPoolManager {
   auto Size() const -> size_t;
   auto NewPage() -> page_id_t;
   auto DeletePage(page_id_t page_id) -> bool;
-  auto CheckedWritePage(page_id_t page_id,
-                        AccessType access_type = AccessType::Unknown) -> std::optional<WritePageGuard>;
+  auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
+      -> std::optional<WritePageGuard>;
   auto CheckedReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> std::optional<ReadPageGuard>;
   auto WritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> WritePageGuard;
   auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
@@ -178,21 +178,26 @@ class BufferPoolManager {
    * pointer to a `FrameHeader` that already has a page's data stored inside of it, or an index to said `FrameHeader`.
    */
  private:
-  /**
-   * @brief Get the Free Frame object
-   *
-   * @return std::optional<frame_id_t>
-   */
-  auto GetFreeFrame() -> std::optional<frame_id_t>;
-  /**
-   * @brief Get the Evicted Frame object
-   *
-   * @return std::optional<frame_id_t>
-   */
-  auto GetEvictedFrame() -> std::optional<frame_id_t>;
+  // /**
+  //  * @brief Get the Free Frame object
+  //  *
+  //  * @return std::optional<frame_id_t>
+  //  */
+  // auto GetFreeFrame() -> std::optional<frame_id_t>;
+  // /**
+  //  * @brief Get the Evicted Frame object
+  //  *
+  //  * @return std::optional<frame_id_t>
+  //  */
+  // auto GetEvictedFrame() -> std::optional<frame_id_t>;
 
-  void FlushEvictedFrame(frame_id_t frame_id);
+  // void FlushEvictedFrame(frame_id_t frame_id);
 
-  void SetNewFrame(page_id_t page_id, frame_id_t frame_id);
+  // void SetNewFrame(page_id_t page_id, frame_id_t frame_id);
+  auto GetFreeFrame(page_id_t page_id) -> std::optional<frame_id_t>;
+
+  auto UpdatePageTable(page_id_t page_id, frame_id_t frame_id) -> void;
+
+  auto LoadPage(page_id_t page_id, frame_id_t frame_id, bool is_write) -> void;
 };
 }  // namespace bustub

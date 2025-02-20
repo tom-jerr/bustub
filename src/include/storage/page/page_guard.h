@@ -167,8 +167,7 @@ class WritePageGuard {
   /** @brief Only the buffer pool manager is allowed to construct a valid `WritePageGuard.` */
   explicit WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame, std::shared_ptr<LRUKReplacer> replacer,
                           std::shared_ptr<std::mutex> bpm_latch);
-  explicit WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame, std::shared_ptr<LRUKReplacer> replacer,
-                          std::shared_ptr<std::mutex> bpm_latch, std::unique_ptr<DiskScheduler> disk_scheduler);
+
   /** @brief The page ID of the page we are guarding. */
   page_id_t page_id_;
 

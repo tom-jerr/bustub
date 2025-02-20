@@ -61,7 +61,7 @@ void DiskScheduler::StartWorkerThread() {
   std::optional<DiskRequest> request;
   while (true) {
     request = request_queue_.Get();
-    // TODO(LZY)：执行 DiskManager 逻辑
+    // TODO(LZY) ：执行 DiskManager 逻辑
     if (request != std::nullopt) {
       if (request->is_write_) {
         disk_manager_->WritePage(request->page_id_, request->data_);
@@ -74,7 +74,7 @@ void DiskScheduler::StartWorkerThread() {
       // 结束循环
       break;
     }
-    // TODO(LZY): 未解决读后写问题：两个线程同时执行写和读(写请求先schedule)，但是读却先执行造成结果错误
+    // TODO(LZY) : 未解决读后写问题：两个线程同时执行写和读(写请求先schedule)，但是读却先执行造成结果错误
   }
 
   // request_queue_.wait_dequeue(request);

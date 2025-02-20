@@ -32,10 +32,13 @@ namespace bustub {
  */
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
-    : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  // frame_->rwlatch_.lock_shared();
-  replacer_->SetEvictable(frame_->frame_id_, false);
-  is_valid_ = true;
+    : page_id_(page_id),
+      frame_(std::move(frame)),
+      replacer_(std::move(replacer)),
+      bpm_latch_(std::move(bpm_latch)),
+      is_valid_(true) {
+  frame_->rwlatch_.lock_shared();
+
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
 }
 
@@ -57,12 +60,10 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
 ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
   Drop();
   page_id_ = that.page_id_;
+  is_valid_ = that.is_valid_;
+  bpm_latch_ = std::move(that.bpm_latch_);
   frame_ = std::move(that.frame_);
   replacer_ = std::move(that.replacer_);
-  bpm_latch_ = std::move(that.bpm_latch_);
-  is_valid_ = that.is_valid_;
-  // replacer_->RecordAccess(frame_->frame_id_);
-  // replacer_->SetEvictable(frame_->frame_id_, false);
   that.is_valid_ = false;
 }
 
@@ -84,14 +85,15 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
  * @return ReadPageGuard& The newly valid `ReadPageGuard`.
  */
 auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
+  if (this == &that) {
+    return *this;
+  }
   Drop();
   page_id_ = that.page_id_;
+  is_valid_ = that.is_valid_;
+  bpm_latch_ = std::move(that.bpm_latch_);
   frame_ = std::move(that.frame_);
   replacer_ = std::move(that.replacer_);
-  bpm_latch_ = std::move(that.bpm_latch_);
-  is_valid_ = that.is_valid_;
-  // replacer_->RecordAccess(frame_->frame_id_);
-  // replacer_->SetEvictable(frame_->frame_id_, false);
   that.is_valid_ = false;
   return *this;
 }
@@ -134,20 +136,20 @@ auto ReadPageGuard::IsDirty() const -> bool {
 void ReadPageGuard::Drop() {
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
   if (is_valid_) {
-    frame_->rwlatch_.unlock_shared();
-    std::unique_lock latch(*bpm_latch_);
-    // 显式清除所有资源
-
-    frame_->FetchSub();
-    if (frame_->GetPinCount() == 0) {
-      // frame_->current_page_id_ = INVALID_PAGE_ID;
-      replacer_->SetEvictable(frame_->frame_id_, true);
+    {
+      std::unique_lock latch(*bpm_latch_);
+      frame_->FetchSub();
+      if (frame_->GetPinCount() == 0) {
+        replacer_->SetEvictable(frame_->frame_id_, true);
+      }
     }
-
+    page_id_ = INVALID_PAGE_ID;
+    is_valid_ = false;
+    // unpin & unlock
+    frame_->rwlatch_.unlock_shared();
     replacer_.reset();
     frame_.reset();
     bpm_latch_.reset();
-    is_valid_ = false;
   }
 }
 
@@ -172,26 +174,13 @@ ReadPageGuard::~ReadPageGuard() { Drop(); }
  */
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
-    : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  // frame_->rwlatch_.lock();
-  replacer_->SetEvictable(frame_->frame_id_, false);
-  frame_->is_dirty_ = true;
-  is_valid_ = true;
-  // UNIMPLEMENTED("TODO(P1): Add implementation.");
-}
-
-WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
-                               std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
-                               std::unique_ptr<DiskScheduler> disk_scheduler)
     : page_id_(page_id),
       frame_(std::move(frame)),
       replacer_(std::move(replacer)),
       bpm_latch_(std::move(bpm_latch)),
-      disk_scheduler_(disk_scheduler.get()) {
-  // frame_->rwlatch_.lock();
+      is_valid_(true) {
+  frame_->rwlatch_.lock();
   frame_->is_dirty_ = true;
-  replacer_->SetEvictable(frame_->frame_id_, false);
-  is_valid_ = true;
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
 }
 
@@ -213,10 +202,10 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
 WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
   Drop();
   page_id_ = that.page_id_;
+  is_valid_ = that.is_valid_;
+  bpm_latch_ = std::move(that.bpm_latch_);
   frame_ = std::move(that.frame_);
   replacer_ = std::move(that.replacer_);
-  bpm_latch_ = std::move(that.bpm_latch_);
-  is_valid_ = that.is_valid_;
   that.is_valid_ = false;
 }
 
@@ -238,14 +227,16 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
  * @return WritePageGuard& The newly valid `WritePageGuard`.
  */
 auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & {
+  if (this == &that) {
+    return *this;
+  }
   Drop();
   page_id_ = that.page_id_;
+  is_valid_ = that.is_valid_;
+  bpm_latch_ = std::move(that.bpm_latch_);
   frame_ = std::move(that.frame_);
   replacer_ = std::move(that.replacer_);
-  bpm_latch_ = std::move(that.bpm_latch_);
-  is_valid_ = that.is_valid_;
   that.is_valid_ = false;
-
   return *this;
 }
 
@@ -297,32 +288,19 @@ void WritePageGuard::Drop() {
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
 
   if (is_valid_) {
-    frame_->rwlatch_.unlock();
-    std::unique_lock<std::mutex> latch(*bpm_latch_);
-
-    // 显式清除所有资源
-    frame_->FetchSub();
-    if (frame_->GetPinCount() == 0) {
-      // frame_->current_page_id_ = INVALID_PAGE_ID;
-      replacer_->SetEvictable(frame_->frame_id_, true);
-      // if (frame_->is_dirty_) {
-      //   auto data = frame_->GetDataMut();
-      //   auto promise = disk_scheduler_->CreatePromise();
-      //   auto future = promise.get_future();
-      //   DiskRequest r{true, data, page_id_, std::move(promise)};
-      //   disk_scheduler_->Schedule(std::move(r));
-      //   while (future.get() == false) {
-      //     continue;
-      //   }
-      //   // frame_->Reset();
-      // }
+    {
+      std::unique_lock latch(*bpm_latch_);
+      frame_->FetchSub();
+      if (frame_->GetPinCount() == 0) {
+        replacer_->SetEvictable(frame_->frame_id_, true);
+      }
     }
-    // replacer_->SetEvictable(frame_->frame_id_, true);
-
+    page_id_ = INVALID_PAGE_ID;
+    is_valid_ = false;
+    frame_->rwlatch_.unlock();
     replacer_.reset();
     frame_.reset();
     bpm_latch_.reset();
-    is_valid_ = false;
   }
 }
 
