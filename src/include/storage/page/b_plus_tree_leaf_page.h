@@ -11,9 +11,9 @@
 #pragma once
 
 #include <string>
-#include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "storage/page/b_plus_tree_page.h"
 
 namespace bustub {
@@ -64,6 +64,19 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
+
+  auto LookupKey(const KeyType &key, std::vector<ValueType> *result, KeyComparator comparator) -> bool;
+
+  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> int;
+  void MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
+  void MoveAllTo(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
+  void MoveFirstToEndOf(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
+  void MoveLastToFrontOf(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
+  void CopyNFrom(KeyType *keys, ValueType *values, int size);
+  void CopyLastFrom(const KeyType &key, const ValueType &value);
+  void CopyFirstFrom(const KeyType &key, const ValueType &value);
+  void IncreaseSize(int amount);
+  auto KeyIndex(const KeyType &key, const KeyComparator &comparator) const -> int;
 
   /**
    * @brief For test only return a string representing all keys in

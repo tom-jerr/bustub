@@ -26,6 +26,7 @@
 #include "storage/page/b_plus_tree_header_page.h"
 #include "storage/page/b_plus_tree_internal_page.h"
 #include "storage/page/b_plus_tree_leaf_page.h"
+#include "storage/page/b_plus_tree_page.h"
 #include "storage/page/page_guard.h"
 
 namespace bustub {
@@ -54,6 +55,22 @@ class Context {
   std::deque<ReadPageGuard> read_set_;
 
   auto IsRootPage(page_id_t page_id) -> bool { return page_id == root_page_id_; }
+
+  void ReleaseWriteLatch() {
+    if (write_set_.empty() || write_set_.size() == 1) {
+      return;
+    }
+    for (size_t i = 0; i < write_set_.size() - 1; i++) {
+      write_set_.pop_front();
+    }
+  }
+};
+
+// find leaf 中对不同的操作，find leaf加锁的方式不同
+enum class Operation : int8_t {
+  SEARCH = 0,
+  INSERT,
+  REMOVE,
 };
 
 #define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator>
@@ -69,12 +86,20 @@ class BPlusTree {
                      const KeyComparator &comparator, int leaf_max_size = LEAF_PAGE_SLOT_CNT,
                      int internal_max_size = INTERNAL_PAGE_SLOT_CNT);
 
+  auto UpdateRoot(page_id_t root_page_id) -> bool;
+  auto FindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
+  auto FindSearchLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
+  auto FindInsertLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
+  auto CreateNewNode() -> page_id_t;
   // Returns true if this B+ tree has no keys and values.
   auto IsEmpty() const -> bool;
 
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
+  void StartNewTree(const KeyType &key, const ValueType &value);
+  auto InsertIntoLeaf(Context *context, const KeyType &key, const ValueType &value) -> bool;
 
+  void Split(Context *ctx);
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
 
@@ -82,7 +107,7 @@ class BPlusTree {
   auto GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool;
 
   // Return the page id of the root node
-  auto GetRootPageId() -> page_id_t;
+  auto GetRootPageId() const -> page_id_t;
 
   // Index iterator
   auto Begin() -> INDEXITERATOR_TYPE;

@@ -9,11 +9,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <algorithm>
 #include <sstream>
 
 #include "common/exception.h"
 #include "common/rid.h"
 #include "storage/page/b_plus_tree_leaf_page.h"
+#include "storage/page/b_plus_tree_page.h"
 
 namespace bustub {
 
@@ -25,24 +27,164 @@ namespace bustub {
  * Init method after creating a new leaf page
  * Including set page type, set current size to zero, set next page id and set max size
  */
-INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {}
 
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
+  SetPageType(IndexPageType::LEAF_PAGE);
+  SetSize(0);
+  SetNextPageId(INVALID_PAGE_ID);
+  SetMaxSize(max_size);
+}
+
+// Insert
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator)
+    -> int {
+  int size = GetSize();
+  /*叶子节点插入kv，返回插入后kv数量*/
+  auto insert_position = KeyIndex(key, comparator);
+  if (insert_position == GetSize()) {
+    /*说明在末尾追加, 这里代码逻辑可以稍微优化一下*/
+    *(key_array_ + size) = key;
+    *(rid_array_ + size) = value;
+    IncreaseSize(1);
+    return size + 1;
+  }
+  /*key重复*/
+  if (comparator(key_array_[insert_position], key) == 0) {
+    return size;
+  }
+  /*一般位置*/
+  // for (int i = size; i > insert_position; i--) {
+  //   key_array_[i] = key_array_[i - 1];
+  //   rid_array_[i] = rid_array_[i - 1];
+  // }
+  std::move_backward(key_array_ + insert_position, key_array_ + GetSize(), key_array_ + GetSize() + 1);
+
+  std::move_backward(rid_array_ + insert_position, rid_array_ + GetSize(), rid_array_ + GetSize() + 1);
+
+  key_array_[insert_position] = key;
+  rid_array_[insert_position] = value;
+  IncreaseSize(1);
+  return size + 1;
+}
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::IncreaseSize(int amount) { SetSize(GetSize() + amount); }
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node) {
+  int start_split_indx = GetMinSize();
+  SetSize(start_split_indx);
+  /*0 1    2 3 4
+   * 一共5个元素 maxsize=5 那么这个时候要移动的数据是2到5之间的
+   * 0 1 2 3
+   * 4  2
+   * */
+  /*modify:*/
+  split_node->CopyNFrom(key_array_ + start_split_indx, rid_array_ + start_split_indx, GetMaxSize() - start_split_indx);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyNFrom(KeyType *keys, ValueType *values, int size) {
+  /*把前一半剩下的数据加在，另一个页面的末尾*/
+  std::copy(keys, keys + size, key_array_ + GetSize());
+  std::copy(values, values + size, rid_array_ + GetSize());
+  IncreaseSize(size);
+}
 /**
  * Helper methods to set/get next page id
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { return INVALID_PAGE_ID; }
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { return next_page_id_; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {}
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) { next_page_id_ = next_page_id; }
 
 /*
- * Helper method to find and return the key associated with input "index" (a.k.a
+ * Helper method to find and return the key associated with input "index"(a.k.a
  * array offset)
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType { return {}; }
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
+  // replace with your own code
+  if (index < 0 || index >= GetSize()) {
+    return {};
+  }
+  return key_array_[index];
+}
+// INDEX_TEMPLATE_ARGUMENTS
+// auto B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &keyComparator) -> int
+// {
+//   int target_in_array = KeyIndex(key, keyComparator);
+//   if (target_in_array == GetSize() || keyComparator(array_[target_in_array].first, key) != 0) {
+//     return GetSize();
+//   }
+//   std::move(array_ + target_in_array + 1, array_ + GetSize(), array_ + target_in_array);
+//   IncreaseSize(-1);
+//   return GetSize();
+// }
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyIndex(const KeyType &key, const KeyComparator &keyComparator) const -> int {
+  auto target = std::lower_bound(key_array_, key_array_ + GetSize(), key, keyComparator);
+  return std::distance(key_array_, target);
+}
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node) {
+  auto key = key_array_[0];
+  auto value = rid_array_[0];
+  std::move(key_array_ + 1, key_array_ + GetSize(), key_array_);
+  std::move(rid_array_ + 1, rid_array_ + GetSize(), rid_array_);
+  IncreaseSize(-1);
+  split_node->CopyLastFrom(key, value);
+}
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyLastFrom(const KeyType &key, const ValueType &value) {
+  *(key_array_ + GetSize()) = key;
+  *(rid_array_ + GetSize()) = value;
+  IncreaseSize(1);
+}
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeLeafPage *split_node) {
+  auto key = key_array_[GetSize() - 1];
+  auto value = rid_array_[GetSize() - 1];
+  IncreaseSize(-1);
+  split_node->CopyFirstFrom(key, value);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::CopyFirstFrom(const KeyType &key, const ValueType &value) {
+  std::move_backward(key_array_, key_array_ + GetSize(), key_array_ + GetSize() + 1);
+  std::move_backward(rid_array_, rid_array_ + GetSize() + 1, rid_array_ + GetSize() + 1);
+  *key_array_ = key;
+  *rid_array_ = value;
+  IncreaseSize(1);
+}
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveAllTo(BPlusTreeLeafPage *split_node) {
+  split_node->CopyNFrom(key_array_, rid_array_, GetSize());
+  split_node->SetNextPageId(GetNextPageId());
+  SetSize(0);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::LookupKey(const KeyType &key, std::vector<ValueType> *result, KeyComparator comparator)
+    -> bool {
+  // binary search
+  int left = 0;
+  int right = GetSize() - 1;
+  while (left <= right) {
+    int mid = (left + right) / 2;
+    if (comparator(key, key_array_[mid]) == 0) {
+      result->emplace_back(rid_array_[mid]);
+      return true;
+    } else if (comparator(key, key_array_[mid]) < 0) {
+      right = mid - 1;
+    } else {
+      left = mid + 1;
+    }
+  }
+  return false;
+}
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;
 template class BPlusTreeLeafPage<GenericKey<8>, RID, GenericComparator<8>>;

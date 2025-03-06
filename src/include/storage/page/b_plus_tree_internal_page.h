@@ -13,6 +13,7 @@
 #include <queue>
 #include <string>
 
+#include "common/config.h"
 #include "storage/page/b_plus_tree_page.h"
 
 namespace bustub {
@@ -54,7 +55,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @param max_size Maximal size of the page
    */
   void Init(int max_size = INTERNAL_PAGE_SLOT_CNT);
-
+  void IncreaseSize(int amount);
   /**
    * @param index The index of the key to get. Index must be non-zero.
    * @return Key at index
@@ -78,7 +79,10 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @return The value at the index
    */
   auto ValueAt(int index) const -> ValueType;
-
+  void SetValueAt(int index, const ValueType &value);
+  auto Lookup(const KeyType &key, const KeyComparator &comparator) const -> page_id_t;
+  void MoveHalfTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient, BufferPoolManager *buffer_pool_manager);
+  void CopyNFrom(KeyType *keys, ValueType *values, int size, BufferPoolManager *buffer_pool_manager);
   /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
@@ -110,6 +114,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];
   ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
+  page_id_t parent_page_id_;
 };
 
 }  // namespace bustub
