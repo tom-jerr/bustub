@@ -61,7 +61,7 @@ class Context {
       return;
     }
     for (size_t i = 0; i < write_set_.size() - 1; i++) {
-      write_set_.pop_front();
+      write_set_.pop_back();
     }
   }
 };
@@ -87,7 +87,7 @@ class BPlusTree {
                      const KeyComparator &comparator, int leaf_max_size = LEAF_PAGE_SLOT_CNT,
                      int internal_max_size = INTERNAL_PAGE_SLOT_CNT);
 
-  auto UpdateRoot(page_id_t root_page_id) -> bool;
+  auto UpdateRoot(Context *ctx, page_id_t root_page_id) -> bool;
   auto FindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
   auto FindSearchLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
   auto FindInsertLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
@@ -109,11 +109,11 @@ class BPlusTree {
   // coalesce
   auto CoalesceOrRedistribute(Context *ctx, page_id_t old_page_id) -> bool;
 
-  auto Coalesce(Context *ctx, page_id_t old_page_id) -> bool;
+  auto Coalesce(Context *ctx, int index, bool node_first) -> bool;
 
-  auto Redistribute(Context *ctx, page_id_t old_page_id) -> bool;
+  auto Redistribute(Context *ctx, int index) -> bool;
 
-  void AdjustRoot(Context *ctx, page_id_t old_root_page_id);
+  void AdjustRoot(Context *ctx);
 
   // Return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool;

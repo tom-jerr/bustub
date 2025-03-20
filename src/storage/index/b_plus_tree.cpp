@@ -106,15 +106,17 @@ auto BPLUSTREE_TYPE::FindInsertLeafPage(Context *ctx, const KeyType &key, const 
   }
   auto root_page_guard = bpm_->WritePage(root_page_id);
   ctx->root_page_id_ = root_page_id;
-  ctx->write_set_.emplace_back(std::move(root_page_guard));  // hold root page
-  auto *root_page = ctx->write_set_.back().AsMut<BPlusTreePage>();
+
+  auto *root_page = root_page_guard.AsMut<BPlusTreePage>();
   if (root_page->IsLeafPage() && root_page->GetSize() < root_page->GetMaxSize() - 1) {
     ctx->ReleaseWriteLatch();
+    ctx->write_set_.emplace_back(std::move(root_page_guard));
     return root_page_id;
   }
   if (!root_page->IsLeafPage() && root_page->GetSize() < root_page->GetMaxSize()) {
     ctx->ReleaseWriteLatch();
   }
+  ctx->write_set_.emplace_back(std::move(root_page_guard));  // hold root page
   while (!ctx->write_set_.back().As<BPlusTreePage>()->IsLeafPage()) {
     auto *internal_page = ctx->write_set_.back().AsMut<InternalPage>();
     page_id_t child_pid = internal_page->Lookup(key, comparator);
@@ -145,12 +147,13 @@ auto BPLUSTREE_TYPE::FindRemoveLeafPage(Context *ctx, const KeyType &key, const 
   }
   auto root_page_guard = bpm_->WritePage(root_page_id);
   ctx->root_page_id_ = root_page_id;
-  ctx->write_set_.emplace_back(std::move(root_page_guard));  // hold root page
-  auto *root_page = ctx->write_set_.back().AsMut<BPlusTreePage>();
+
+  auto *root_page = root_page_guard.AsMut<BPlusTreePage>();
 
   if (root_page->GetSize() > 2) {
     ctx->ReleaseWriteLatch();
   }
+  ctx->write_set_.emplace_back(std::move(root_page_guard));  // hold root page
   while (!ctx->write_set_.back().As<BPlusTreePage>()->IsLeafPage()) {
     auto *internal_page = ctx->write_set_.back().AsMut<InternalPage>();
     page_id_t child_pid = internal_page->Lookup(key, comparator);
@@ -193,10 +196,12 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::UpdateRoot(page_id_t root_page_id) -> bool {
-  BUSTUB_ASSERT(header_page_id_ != INVALID_PAGE_ID, "header page id is invalid");
-  auto root_page_guard = bpm_->WritePage(header_page_id_);
-  auto root_page = root_page_guard.AsMut<BPlusTreeHeaderPage>();
+auto BPLUSTREE_TYPE::UpdateRoot(Context *ctx, page_id_t root_page_id) -> bool {
+  // BUSTUB_ASSERT(header_page_id_ != INVALID_PAGE_ID, "header page id is invalid");
+  if (!ctx->header_page_.has_value()) {
+    ctx->header_page_ = bpm_->WritePage(header_page_id_);
+  }
+  auto root_page = ctx->header_page_.value().AsMut<BPlusTreeHeaderPage>();
   root_page->root_page_id_ = root_page_id;
   return true;
 }
@@ -222,7 +227,8 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
 
   auto leaf_page_id = FindLeafPage(&ctx, Operation::INSERT, key, comparator_);
 
-  // 如果找到叶子节点，该节点的write latch已经被持有
+  // 如果找到叶子节点，一定确保ctx.write_set_不为空
+  BUSTUB_ASSERT(!ctx.write_set_.empty(), "write set is empty");
   auto leaf_page = ctx.write_set_.back().template AsMut<LeafPage>();
   auto before_insert_size = leaf_page->GetSize();
   leaf_page->Insert(key, value, comparator_);
@@ -315,7 +321,7 @@ void BPLUSTREE_TYPE::InsertIntoParent(Context *ctx, page_id_t old_node_id, const
     ctx->write_set_.emplace_back(std::move(new_root_page_guard));
     auto *root_page = ctx->write_set_.back().AsMut<InternalPage>();
     root_page->PopulateNewRoot(old_node_id, key, new_node_id);
-    UpdateRoot(new_root_page_id);
+    UpdateRoot(ctx, new_root_page_id);
     return;
   }
 
@@ -364,8 +370,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
     return;
   }
   auto leaf_page_id = FindLeafPage(&ctx, Operation::REMOVE, key, comparator_);
-  auto leaf_page_guard = bpm_->WritePage(leaf_page_id);
-  auto leaf_page = leaf_page_guard.template AsMut<LeafPage>();
+  auto leaf_page = ctx.write_set_.back().template AsMut<LeafPage>();
   // remove key from leaf page
   if (!leaf_page->RemoveAndDeleteRecord(key, comparator_)) {
     return;
@@ -381,26 +386,140 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::CoalesceOrRedistribute(Context *ctx, page_id_t old_page_id) -> bool {
   if (ctx->IsRootPage(old_page_id)) {
-    AdjustRoot(ctx, old_page_id);
+    AdjustRoot(ctx);
     return true;
   }
+  // get parent page
+  auto parent_page_id = ctx->write_set_.rbegin()[1].GetPageId();
+  auto parent_page_guard = bpm_->WritePage(parent_page_id);
+  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+  if (parent_page->GetSize() == 1) {
+    return true;
+  }
+  // find the index of old page in parent page
+  auto old_page_index = parent_page->ValueIndex(old_page_id);
+  BUSTUB_ASSERT(old_page_index >= 0 && old_page_index < parent_page->GetSize(), "old page index is invalid");
+  auto sibling_index = old_page_index == 0 ? 1 : old_page_index - 1;
+  auto sibling_page_id = parent_page->ValueAt(sibling_index);
+  auto sibling_page_guard = bpm_->WritePage(sibling_page_id);
+  ctx->write_set_.emplace_back(std::move(sibling_page_guard));
+  bool redistribute = Redistribute(ctx, old_page_index);
+  if (!redistribute) {
+    if (old_page_index == 0) {
+      Coalesce(ctx, sibling_index, true);
+    } else {
+      Coalesce(ctx, old_page_index, false);
+    }
+  }
+  return true;
+}
+// borrow from sibling
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::Redistribute(Context *ctx, int index) -> bool {
+  auto neighbor_page_id = ctx->write_set_.back().GetPageId();
+  auto old_page_id = ctx->write_set_.rbegin()[1].GetPageId();
+  auto parent_page_id = ctx->write_set_.rbegin()[2].GetPageId();
+
+  auto parent_page_guard = bpm_->WritePage(parent_page_id);
+  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+
+  auto old_page_guard = bpm_->WritePage(old_page_id);
+  auto old_page = old_page_guard.AsMut<BPlusTreePage>();
+
+  auto neighbor_page_guard = bpm_->WritePage(neighbor_page_id);
+  auto neighbor_page = neighbor_page_guard.AsMut<BPlusTreePage>();
+
+  if (neighbor_page->GetSize() <= neighbor_page->GetMinSize()) {
+    return false;
+  }
+  if (old_page->IsLeafPage()) {
+    auto leaf_page = old_page_guard.AsMut<LeafPage>();
+    auto neighbor_leaf_page = neighbor_page_guard.AsMut<LeafPage>();
+    if (index == 0) {
+      neighbor_leaf_page->MoveFirstToEndOf(leaf_page);
+      parent_page->SetKeyAt(index + 1, neighbor_leaf_page->KeyAt(0));
+    } else {
+      neighbor_leaf_page->MoveLastToFrontOf(leaf_page);
+      parent_page->SetKeyAt(index, leaf_page->KeyAt(0));
+    }
+  } else {
+    auto internal_page = old_page_guard.AsMut<InternalPage>();
+    auto neighbor_internal_page = neighbor_page_guard.AsMut<InternalPage>();
+    if (index == 0) {
+      neighbor_internal_page->MoveFirstToEndOf(internal_page);
+      parent_page->SetKeyAt(index + 1, neighbor_internal_page->KeyAt(0));
+    } else {
+      neighbor_internal_page->MoveLastToFrontOf(internal_page);
+      parent_page->SetKeyAt(index, internal_page->KeyAt(0));
+    }
+  }
+  return true;
+}
+
+// coalesce is to merge old page and sibling page
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::Coalesce(Context *ctx, int index, bool node_first) -> bool {
+  page_id_t neighbor_page_id = INVALID_PAGE_ID;
+  page_id_t old_page_id = INVALID_PAGE_ID;
+  page_id_t parent_page_id = INVALID_PAGE_ID;
+  if (node_first) {
+    old_page_id = ctx->write_set_.back().GetPageId();
+    neighbor_page_id = ctx->write_set_.rbegin()[1].GetPageId();
+    parent_page_id = ctx->write_set_.rbegin()[2].GetPageId();
+  } else {
+    old_page_id = ctx->write_set_.back().GetPageId();
+    neighbor_page_id = ctx->write_set_.rbegin()[1].GetPageId();
+    parent_page_id = ctx->write_set_.rbegin()[2].GetPageId();
+  }
+
+  auto parent_page_guard = bpm_->WritePage(parent_page_id);
+  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+
+  auto old_page_guard = bpm_->WritePage(old_page_id);
+  auto old_page = old_page_guard.AsMut<BPlusTreePage>();
+
+  auto neighbor_page_guard = bpm_->WritePage(neighbor_page_id);
+  auto neighbor_page = neighbor_page_guard.AsMut<BPlusTreePage>();
+
+  if ((neighbor_page->GetSize() + old_page->GetSize()) > old_page->GetMaxSize()) {
+    return false;
+  }
+  if (old_page->IsLeafPage()) {
+    auto leaf_page = old_page_guard.AsMut<LeafPage>();
+    auto neighbor_leaf_page = neighbor_page_guard.AsMut<LeafPage>();
+
+    // merge old page and neighbor page
+    neighbor_leaf_page->InsertAllNodeAfter(leaf_page);
+    neighbor_leaf_page->SetNextPageId(leaf_page->GetNextPageId());
+  } else {
+    auto internal_page = old_page_guard.AsMut<InternalPage>();
+    auto neighbor_internal_page = neighbor_page_guard.AsMut<InternalPage>();
+    // merge old page and neighbor page
+    neighbor_internal_page->InsertAllNodeAfter(internal_page);
+  }
+  parent_page->Remove(index);
+  if (parent_page->GetSize() < parent_page->GetMinSize()) {
+    CoalesceOrRedistribute(ctx, parent_page_id);
+  }
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::AdjustRoot(Context *ctx, page_id_t old_root_page_id) {
-  auto old_root_page_guard = bpm_->WritePage(old_root_page_id);
-  auto old_root_page = old_root_page_guard.AsMut<BPlusTreePage>();
+void BPLUSTREE_TYPE::AdjustRoot(Context *ctx) {
+  [[maybe_unused]] auto old_root_page_id = ctx->write_set_.front().GetPageId();
+
+  auto old_root_page = ctx->write_set_.front().AsMut<BPlusTreePage>();
   if (old_root_page->IsLeafPage()) {
     if (old_root_page->GetSize() == 0) {
-      UpdateRoot(INVALID_PAGE_ID);
+      UpdateRoot(ctx, INVALID_PAGE_ID);
       // bpm_->DeletePage(old_root_page_id);
     }
     return;
   }
   // 如果根节点只有一个child，那么将child作为新的根节点
   if (old_root_page->GetSize() == 1) {
-    auto new_root_page_id = old_root_page_guard.AsMut<InternalPage>()->RemoveAndReturnOnlyChild();
-    UpdateRoot(new_root_page_id);
+    auto new_root_page_id = ctx->write_set_.front().AsMut<InternalPage>()->RemoveAndReturnOnlyChild();
+    UpdateRoot(ctx, new_root_page_id);
   }
 }
 
