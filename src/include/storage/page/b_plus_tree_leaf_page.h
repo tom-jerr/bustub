@@ -64,19 +64,23 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
+  auto ValueAt(int index) const -> ValueType;
 
-  auto LookupKey(const KeyType &key, std::vector<ValueType> *result, KeyComparator comparator) -> bool;
+  auto Lookup(const KeyType &key, std::vector<ValueType> *result, KeyComparator comparator) const -> bool;
 
-  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> int;
-  void MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
-  void MoveAllTo(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
-  void MoveFirstToEndOf(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
-  void MoveLastToFrontOf(B_PLUS_TREE_LEAF_PAGE_TYPE *split_node);
-  void CopyNFrom(KeyType *keys, ValueType *values, int size);
-  void CopyLastFrom(const KeyType &key, const ValueType &value);
-  void CopyFirstFrom(const KeyType &key, const ValueType &value);
+  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
+  void InsertNodeAfter(const KeyType &key, const ValueType &value);
+  void InsertNodeBefore(const KeyType &key, const ValueType &value);
+
+  void InsertAllNodeAfter(BPlusTreeLeafPage *node);
+  void InsertAllNodeBefore(BPlusTreeLeafPage *node);
+  void MoveFirstToEndOf(BPlusTreeLeafPage *split_node);
+  void MoveLastToFrontOf(BPlusTreeLeafPage *split_node);
+
   void IncreaseSize(int amount);
   auto KeyIndex(const KeyType &key, const KeyComparator &comparator) const -> int;
+
+  auto RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator) -> bool;
 
   /**
    * @brief For test only return a string representing all keys in

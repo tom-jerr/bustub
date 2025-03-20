@@ -1,8 +1,10 @@
 #include "storage/index/b_plus_tree.h"
 #include "common/config.h"
 #include "common/macros.h"
+#include "common/rid.h"
 #include "storage/index/b_plus_tree_debug.h"
 #include "storage/page/b_plus_tree_header_page.h"
+#include "storage/page/b_plus_tree_internal_page.h"
 #include "storage/page/b_plus_tree_leaf_page.h"
 #include "storage/page/b_plus_tree_page.h"
 #include "storage/page/page_guard.h"
@@ -30,7 +32,7 @@ INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
   page_id_t root_page_id = GetRootPageId();
   if (root_page_id == INVALID_PAGE_ID) {
-    return false;
+    return true;
   }
   auto page_guard = bpm_->ReadPage(root_page_id);
   return page_guard.As<BPlusTreePage>()->GetSize() == 0;
@@ -41,9 +43,13 @@ auto BPLUSTREE_TYPE::FindLeafPage(Context *ctx, Operation op, const KeyType &key
   BUSTUB_ASSERT(ctx != nullptr, "context is nullptr");
   page_id_t leaf_pid = INVALID_PAGE_ID;
   if (op == Operation::SEARCH) {
-    leaf_pid = FindLeafPage(ctx, op, key, comparator);
+    leaf_pid = FindSearchLeafPage(ctx, key, comparator);
   } else if (op == Operation::INSERT) {
     leaf_pid = FindInsertLeafPage(ctx, key, comparator);
+  } else if (op == Operation::REMOVE) {
+    leaf_pid = FindRemoveLeafPage(ctx, key, comparator);
+  } else {
+    throw Exception("Unknown find leaf page operation");
   }
   // BUSTUB_ASSERT(leaf_pid > 0, "leaf page id is invalid");
   return leaf_pid;
@@ -59,9 +65,9 @@ auto BPLUSTREE_TYPE::FindSearchLeafPage(Context *ctx, const KeyType &key, const 
   }
   // get the root page
   auto root_page_guard = bpm_->ReadPage(root_page_id);
+  ctx->read_set_.emplace_back(std::move(root_page_guard));
   header_page_guard.Drop();
-  ctx->read_set_.emplace_back(root_page_guard);
-  auto *root_page = root_page_guard.As<BPlusTreePage>();
+  auto *root_page = ctx->read_set_.back().As<BPlusTreePage>();
   // Find the leaf page that contains the input key.
   // 1. root page is leaf page
   if (root_page->IsLeafPage()) {
@@ -69,18 +75,22 @@ auto BPLUSTREE_TYPE::FindSearchLeafPage(Context *ctx, const KeyType &key, const 
   }
   // 2. root page is internal page
   // 2.1 find the leaf page that contains the input key
+  InternalPage *internal_page = const_cast<InternalPage *>(ctx->read_set_.back().As<InternalPage>());
+  auto child_pid = internal_page->Lookup(key, comparator);
 
-  while (!ctx->read_set_.back().As<BPlusTreePage>()->IsLeafPage()) {
-    auto *internal_page = const_cast<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator> *>(
-        ctx->read_set_.back().As<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>>());
-    page_id_t child_pid = internal_page->Lookup(key, comparator);
-    BUSTUB_ASSERT(child_pid > 0, "child page id is invalid");
+  while (true) {
     auto child_page_guard = bpm_->ReadPage(child_pid);
-
     ctx->read_set_.pop_back();
-    ctx->read_set_.emplace_back(child_page_guard);
+    ctx->read_set_.emplace_back(std::move(child_page_guard));
+    auto child_page = ctx->read_set_.back().template As<BPlusTreePage>();
+    if (child_page->IsLeafPage()) {
+      return child_pid;
+    }
+    auto *child_internal_page = const_cast<InternalPage *>(ctx->read_set_.back().template As<InternalPage>());
+    child_pid = child_internal_page->Lookup(key, comparator);
   }
-  return ctx->read_set_.back().GetPageId();
+  return child_pid;
+  // return INVALID_PAGE_ID;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -94,10 +104,10 @@ auto BPLUSTREE_TYPE::FindInsertLeafPage(Context *ctx, const KeyType &key, const 
   if (root_page_id == INVALID_PAGE_ID) {
     return INVALID_PAGE_ID;
   }
+  auto root_page_guard = bpm_->WritePage(root_page_id);
   ctx->root_page_id_ = root_page_id;
-  auto root_page_guard = bpm_->ReadPage(root_page_id);
-  auto root_page = root_page_guard.As<BPlusTreePage>();
-  ctx->write_set_.emplace_back(root_page_guard);  // hold root page
+  ctx->write_set_.emplace_back(std::move(root_page_guard));  // hold root page
+  auto *root_page = ctx->write_set_.back().AsMut<BPlusTreePage>();
   if (root_page->IsLeafPage() && root_page->GetSize() < root_page->GetMaxSize() - 1) {
     ctx->ReleaseWriteLatch();
     return root_page_id;
@@ -106,17 +116,53 @@ auto BPLUSTREE_TYPE::FindInsertLeafPage(Context *ctx, const KeyType &key, const 
     ctx->ReleaseWriteLatch();
   }
   while (!ctx->write_set_.back().As<BPlusTreePage>()->IsLeafPage()) {
-    auto *internal_page = ctx->write_set_.back().AsMut<BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>>();
+    auto *internal_page = ctx->write_set_.back().AsMut<InternalPage>();
     page_id_t child_pid = internal_page->Lookup(key, comparator);
     BUSTUB_ASSERT(child_pid > 0, "child page id is invalid");
     auto child_page_guard = bpm_->WritePage(child_pid);  // child hold write latch
-    auto child_page = child_page_guard.As<BPlusTreePage>();
+    auto child_page = child_page_guard.As<InternalPage>();
 
     // 可以提前释放上面的锁
     if ((child_page->IsLeafPage() && child_page->GetSize() < child_page->GetMaxSize() - 1) ||
         (!child_page->IsLeafPage() && child_page->GetSize() < child_page->GetMaxSize())) {
       ctx->ReleaseWriteLatch();
     }
+    ctx->write_set_.emplace_back(std::move(child_page_guard));
+  }
+  return ctx->write_set_.back().GetPageId();
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::FindRemoveLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator)
+    -> page_id_t {
+  if (!ctx->header_page_.has_value()) {
+    ctx->header_page_ = bpm_->WritePage(header_page_id_);
+  }
+
+  auto root_page_id = ctx->header_page_.value().AsMut<BPlusTreeHeaderPage>()->root_page_id_;
+  if (root_page_id == INVALID_PAGE_ID) {
+    return INVALID_PAGE_ID;
+  }
+  auto root_page_guard = bpm_->WritePage(root_page_id);
+  ctx->root_page_id_ = root_page_id;
+  ctx->write_set_.emplace_back(std::move(root_page_guard));  // hold root page
+  auto *root_page = ctx->write_set_.back().AsMut<BPlusTreePage>();
+
+  if (root_page->GetSize() > 2) {
+    ctx->ReleaseWriteLatch();
+  }
+  while (!ctx->write_set_.back().As<BPlusTreePage>()->IsLeafPage()) {
+    auto *internal_page = ctx->write_set_.back().AsMut<InternalPage>();
+    page_id_t child_pid = internal_page->Lookup(key, comparator);
+    BUSTUB_ASSERT(child_pid > 0, "child page id is invalid");
+    auto child_page_guard = bpm_->WritePage(child_pid);  // child hold write latch
+    auto child_page = child_page_guard.As<InternalPage>();
+
+    // 可以提前释放上面的锁
+    if (child_page->GetSize() > child_page->GetMinSize()) {
+      ctx->ReleaseWriteLatch();
+    }
+    ctx->write_set_.emplace_back(std::move(child_page_guard));
   }
   return ctx->write_set_.back().GetPageId();
 }
@@ -141,10 +187,11 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
   BUSTUB_ASSERT(leaf_pid > 0, "leaf page id is invalid");
   // find the key in the leaf page
   auto leaf_page_guard = bpm_->ReadPage(leaf_pid);
-  auto leaf_page = const_cast<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator> *>(
-      leaf_page_guard.template As<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>());  // need to use template
-  return leaf_page->LookupKey(key, result, comparator_);
+  auto leaf_page = leaf_page_guard.template As<LeafPage>();  // need to use template
+  return leaf_page->Lookup(key, result, comparator_);
+  // return false;
 }
+
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::UpdateRoot(page_id_t root_page_id) -> bool {
   BUSTUB_ASSERT(header_page_id_ != INVALID_PAGE_ID, "header page id is invalid");
@@ -172,16 +219,32 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     StartNewTree(key, value);
     return true;
   }
-  // ctx.root_page_id_ = GetRootPageId();
-  ctx.header_page_ = bpm_->WritePage(header_page_id_);
-  auto root_page_id = ctx.header_page_.value().As<BPlusTreeHeaderPage>()->root_page_id_;
-  if (root_page_id == INVALID_PAGE_ID) {
+
+  auto leaf_page_id = FindLeafPage(&ctx, Operation::INSERT, key, comparator_);
+
+  // 如果找到叶子节点，该节点的write latch已经被持有
+  auto leaf_page = ctx.write_set_.back().template AsMut<LeafPage>();
+  auto before_insert_size = leaf_page->GetSize();
+  leaf_page->Insert(key, value, comparator_);
+  auto new_size = leaf_page->GetSize();
+  // check leaf node whether it is full or not
+  // 1. duplicate key
+  if (before_insert_size == new_size) {
     return false;
   }
+  // 2. leaf node is  not full
+  if (new_size < leaf_page->GetMaxSize()) {
+    return true;
+  }
+  // 3. leaf node is full
+  SplitLeaf(&ctx);
+  auto *split_page = ctx.write_set_.back().AsMut<LeafPage>();
+  split_page->SetNextPageId(leaf_page->GetNextPageId());
+  leaf_page->SetNextPageId(ctx.write_set_.back().GetPageId());
 
-  ctx.write_set_.emplace_back(bpm_->WritePage(root_page_id));
-  ctx.root_page_id_ = root_page_id;
-  return InsertIntoLeaf(&ctx, key, value);
+  auto new_key = split_page->KeyAt(0);  // 新分裂的节点的第一个key
+  InsertIntoParent(&ctx, leaf_page_id, new_key, ctx.write_set_.back().GetPageId());
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -190,7 +253,7 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
   auto header_page = header_page_guard.AsMut<BPlusTreeHeaderPage>();
   page_id_t leaf_page_id = bpm_->NewPage();
   auto leaf_page_guard = bpm_->WritePage(leaf_page_id);
-  auto *leaf_page = leaf_page_guard.AsMut<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>();
+  auto *leaf_page = leaf_page_guard.AsMut<LeafPage>();
 
   leaf_page->Init();
   leaf_page->Insert(key, value, comparator_);
@@ -198,47 +261,90 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Split(Context *ctx) -> void {
+void BPLUSTREE_TYPE::SplitLeaf(Context *ctx) {
   page_id_t split_page_id = bpm_->NewPage();
-  auto split_page_guard = bpm_->WritePage(split_page_id);
-  ctx->write_set_.emplace_back(split_page_guard);
-  if (split_page_guard.AsMut<BPlusTreePage>()->IsLeafPage()) {
-    auto *split_node = split_page_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-    split_node->Init();
-    std::next(ctx->write_set_.rbegin(), 1)
-        ->AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>()
-        ->MoveHalfTo(split_node);  // 倒数第二个元素
-  } else {
+  if (split_page_id == INVALID_PAGE_ID) {
+    throw Exception(ExceptionType::OUT_OF_MEMORY, "Out of memory");
   }
-  // leaf_page->Init();
+  auto split_page_guard = bpm_->WritePage(split_page_id);
+  auto *split_page = split_page_guard.AsMut<LeafPage>();
+  split_page->Init();
+  ctx->write_set_.emplace_back(std::move(split_page_guard));
+  // 申请new page后需要init
+  auto old_page = ctx->write_set_.rbegin()[1].AsMut<LeafPage>();
+  auto new_page = ctx->write_set_.back().AsMut<LeafPage>();
+
+  int split_point = old_page->GetSize() / 2;
+  for (int i = split_point; i < old_page->GetSize(); i++) {
+    new_page->InsertNodeAfter(old_page->KeyAt(i), old_page->ValueAt(i));
+  }
+  old_page->SetSize(split_point);
+
+  new_page->SetNextPageId(old_page->GetNextPageId());
+  old_page->SetNextPageId(split_page_id);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::InsertIntoLeaf(Context *ctx, const KeyType &key, const ValueType &value) -> bool {
-  auto leaf_page_id = FindLeafPage(ctx, Operation::INSERT, key, comparator_);
-  auto leaf_page_guard = bpm_->WritePage(leaf_page_id);
-  ctx->write_set_.emplace_back(leaf_page_guard);
-  auto leaf_page = leaf_page_guard.template AsMut<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>();
-  auto before_insert_size = leaf_page->GetSize();
-  auto new_size = leaf_page->Insert(key, value, comparator_);
-  // check leaf node whether it is full or not
-  // 1. duplicate key
-  if (before_insert_size == new_size) {
-    return false;
+void BPLUSTREE_TYPE::SplitInternal(Context *ctx) {
+  page_id_t split_page_id = bpm_->NewPage();
+  if (split_page_id == INVALID_PAGE_ID) {
+    throw Exception(ExceptionType::OUT_OF_MEMORY, "Out of memory");
   }
-  // 2. leaf node is full
-  if (new_size < leaf_page->GetMaxSize()) {
-    return true;
+  auto split_page_guard = bpm_->WritePage(split_page_id);
+  auto *split_page = split_page_guard.AsMut<InternalPage>();
+  split_page->Init();
+  ctx->write_set_.emplace_back(std::move(split_page_guard));
+  // 申请new page后需要init
+  auto old_page = ctx->write_set_.rbegin()[1].AsMut<InternalPage>();
+  auto new_page = ctx->write_set_.back().AsMut<InternalPage>();
+  int split_point = old_page->GetSize() / 2;
+  for (int i = split_point + 1; i < old_page->GetSize(); i++) {
+    new_page->InsertNodeAfter(old_page->KeyAt(i), old_page->ValueAt(i));
   }
-  // 3. leaf node is full
-  Split(ctx);
-  auto *split_page = ctx->write_set_.back().AsMut<BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>>();
-  split_page->SetNextPageId(leaf_page->GetNextPageId());
-  leaf_page->SetNextPageId(ctx->write_set_.back().GetPageId());
-
-  auto new_key = split_page->KeyAt(0);  // 新分裂的节点的第一个key
-  InsertIntoParent();
+  old_page->SetSize(split_point);
 }
+
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::InsertIntoParent(Context *ctx, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id) {
+  if (ctx->IsRootPage(old_node_id)) {
+    // root page
+    auto new_root_page_id = bpm_->NewPage();
+    auto new_root_page_guard = bpm_->WritePage(new_root_page_id);
+    auto *new_root_page = new_root_page_guard.AsMut<InternalPage>();
+    new_root_page->Init();
+    ctx->write_set_.emplace_back(std::move(new_root_page_guard));
+    auto *root_page = ctx->write_set_.back().AsMut<InternalPage>();
+    root_page->PopulateNewRoot(old_node_id, key, new_node_id);
+    UpdateRoot(new_root_page_id);
+    return;
+  }
+
+  // get parent page
+  auto parent_page_id = ctx->write_set_.rbegin()[1].GetPageId();
+  auto parent_page_guard = bpm_->WritePage(parent_page_id);
+  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+  if (parent_page->Insert(key, new_node_id, comparator_)) {
+    return;
+  }
+
+  // parent page is full, first split parent page
+  SplitInternal(ctx);
+  auto new_page_id = ctx->write_set_.back().GetPageId();
+  auto new_page_guard = bpm_->WritePage(new_page_id);
+  auto new_page = new_page_guard.AsMut<InternalPage>();
+  auto new_key = new_page->KeyAt(0);
+  InsertIntoParent(ctx, parent_page_id, new_key, new_page_id);
+}
+
+// INDEX_TEMPLATE_ARGUMENTS
+// void BPLUSTREE_TYPE::UpdateRoot(page_id_t root_page_id, Context *ctx) {
+//   if (!ctx->header_page_.has_value()) {
+//     throw Exception(ExceptionType::INVALID, "header page is invalid");
+//   }
+//   auto header_page = ctx->header_page_.value().AsMut<BPlusTreeHeaderPage>();
+//   header_page->root_page_id_ = root_page_id;
+// }
+
 /*****************************************************************************
  * REMOVE
  *****************************************************************************/
@@ -253,7 +359,49 @@ INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   // Declaration of context instance.
   Context ctx;
-  (void)ctx;
+  // (void)ctx;
+  if (IsEmpty()) {
+    return;
+  }
+  auto leaf_page_id = FindLeafPage(&ctx, Operation::REMOVE, key, comparator_);
+  auto leaf_page_guard = bpm_->WritePage(leaf_page_id);
+  auto leaf_page = leaf_page_guard.template AsMut<LeafPage>();
+  // remove key from leaf page
+  if (!leaf_page->RemoveAndDeleteRecord(key, comparator_)) {
+    return;
+  }
+  // check leaf node whether it is underflow or not
+  if (leaf_page->GetSize() >= leaf_page->GetMinSize()) {
+    return;
+  }
+  // coalesce or redistribute
+  CoalesceOrRedistribute(&ctx, leaf_page_id);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::CoalesceOrRedistribute(Context *ctx, page_id_t old_page_id) -> bool {
+  if (ctx->IsRootPage(old_page_id)) {
+    AdjustRoot(ctx, old_page_id);
+    return true;
+  }
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::AdjustRoot(Context *ctx, page_id_t old_root_page_id) {
+  auto old_root_page_guard = bpm_->WritePage(old_root_page_id);
+  auto old_root_page = old_root_page_guard.AsMut<BPlusTreePage>();
+  if (old_root_page->IsLeafPage()) {
+    if (old_root_page->GetSize() == 0) {
+      UpdateRoot(INVALID_PAGE_ID);
+      // bpm_->DeletePage(old_root_page_id);
+    }
+    return;
+  }
+  // 如果根节点只有一个child，那么将child作为新的根节点
+  if (old_root_page->GetSize() == 1) {
+    auto new_root_page_id = old_root_page_guard.AsMut<InternalPage>()->RemoveAndReturnOnlyChild();
+    UpdateRoot(new_root_page_id);
+  }
 }
 
 /*****************************************************************************

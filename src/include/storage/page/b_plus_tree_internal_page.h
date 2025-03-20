@@ -80,9 +80,22 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    */
   auto ValueAt(int index) const -> ValueType;
   void SetValueAt(int index, const ValueType &value);
-  auto Lookup(const KeyType &key, const KeyComparator &comparator) const -> page_id_t;
-  void MoveHalfTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient, BufferPoolManager *buffer_pool_manager);
-  void CopyNFrom(KeyType *keys, ValueType *values, int size, BufferPoolManager *buffer_pool_manager);
+  auto Lookup(const KeyType &key, const KeyComparator &comparator) const -> ValueType;
+
+  void PopulateNewRoot(const ValueType &old_node_id, const KeyType &new_key, const ValueType &new_node_id);
+  void InsertNodeAfter(const KeyType &key, const ValueType &new_node_id);
+  void InsertNodeBefore(const KeyType &key, const ValueType &new_node_id);
+  void InsertAllNodeAfter(BPlusTreeInternalPage *node);
+  void InsertAllNodeBefore(BPlusTreeInternalPage *node);
+  void MoveFirstToEndOf(BPlusTreeInternalPage *recipient);
+  void MoveLastToFrontOf(BPlusTreeInternalPage *recipient);
+  void CopyFirstFrom(const KeyType &key, const ValueType &value);
+  void CopyLastFrom(const KeyType &key, const ValueType &value);
+  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
+
+  auto RemoveAndReturnOnlyChild() -> page_id_t;
+  void Remove(int index);
+
   /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
@@ -114,7 +127,6 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];
   ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
-  page_id_t parent_page_id_;
 };
 
 }  // namespace bustub

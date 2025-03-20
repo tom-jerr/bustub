@@ -78,6 +78,7 @@ enum class Operation : int8_t {
 // Main class providing the API for the Interactive B+ Tree.
 INDEX_TEMPLATE_ARGUMENTS
 class BPlusTree {
+  // TODO(LZY): 源文件中需要as成叶子节点或者内部节点使用这两个别名！！！
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
@@ -90,6 +91,7 @@ class BPlusTree {
   auto FindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
   auto FindSearchLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
   auto FindInsertLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
+  auto FindRemoveLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
   auto CreateNewNode() -> page_id_t;
   // Returns true if this B+ tree has no keys and values.
   auto IsEmpty() const -> bool;
@@ -97,11 +99,21 @@ class BPlusTree {
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
   void StartNewTree(const KeyType &key, const ValueType &value);
-  auto InsertIntoLeaf(Context *context, const KeyType &key, const ValueType &value) -> bool;
+  void InsertIntoParent(Context *context, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id);
 
-  void Split(Context *ctx);
+  void SplitLeaf(Context *ctx);
+  void SplitInternal(Context *ctx);
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
+
+  // coalesce
+  auto CoalesceOrRedistribute(Context *ctx, page_id_t old_page_id) -> bool;
+
+  auto Coalesce(Context *ctx, page_id_t old_page_id) -> bool;
+
+  auto Redistribute(Context *ctx, page_id_t old_page_id) -> bool;
+
+  void AdjustRoot(Context *ctx, page_id_t old_root_page_id);
 
   // Return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool;
