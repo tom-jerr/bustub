@@ -64,6 +64,13 @@ class Context {
       write_set_.pop_back();
     }
   }
+  void print() {
+    std::cout << "write set: ";
+    for (auto &w : write_set_) {
+      std::cout << w.GetPageId() << " ";
+    }
+    std::cout << std::endl;
+  }
 };
 
 // find leaf 中对不同的操作，find leaf加锁的方式不同
@@ -99,10 +106,11 @@ class BPlusTree {
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
   void StartNewTree(const KeyType &key, const ValueType &value);
-  void InsertIntoParent(Context *context, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id);
+  void InsertIntoParent(Context *context, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id,
+                        int recursive_level);
 
   void SplitLeaf(Context *ctx);
-  void SplitInternal(Context *ctx);
+  void SplitInternal(Context *ctx, int recursive_level);
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
 

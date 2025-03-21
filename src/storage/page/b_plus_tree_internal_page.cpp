@@ -19,7 +19,7 @@
 #include "common/macros.h"
 #include "storage/page/b_plus_tree_internal_page.h"
 #include "storage/page/b_plus_tree_page.h"
-
+// TODO(LZY): 这里需要大改，k个key对应k+1个value，所以需要修改key_array_和page_id_array_的大小
 namespace bustub {
 /*****************************************************************************
  * HELPER METHODS AND UTILITIES
@@ -42,10 +42,10 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::IncreaseSize(int amount) { SetSize(GetSize(
  * array offset)
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType { return key_array_[index + 1]; }
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType { return key_array_[index]; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) { key_array_[index + 1] = key; }
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) { key_array_[index] = key; }
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetValueAt(int index, const ValueType &value) { page_id_array_[index] = value; }
 /*
@@ -90,32 +90,35 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_node_i
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator)
     -> bool {
-  int idx = Lookup(key, comparator);
-  if (idx < GetSize() && comparator(key_array_[idx], key) == 0) {
-    return false;
+  // 查找插入位置
+  int insert_pos = 0;
+  while (insert_pos < GetSize() && comparator(key, key_array_[insert_pos]) > 0) {
+    insert_pos++;
   }
-  if (GetSize() == 0) {
+  if (insert_pos == 0) {
+    std::move(key_array_ + 1, key_array_ + GetSize(), key_array_ + 2);
+    std::move(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + 1);
     key_array_[1] = key;
     page_id_array_[0] = value;
     IncreaseSize(1);
-    return true;
+    return GetSize() <= GetMaxSize();
   }
-  if (idx == GetSize()) {
-    key_array_[idx] = key;
-    page_id_array_[idx] = value;
-    IncreaseSize(1);
-    return true;
-  }
-  std::move(key_array_ + idx, key_array_ + GetSize(), key_array_ + GetSize() + 1);
-  std::move(page_id_array_ + idx, page_id_array_ + GetSize(), page_id_array_ + GetSize() + 1);
-  key_array_[idx] = key;
-  page_id_array_[idx] = value;
+  std::move(key_array_ + insert_pos, key_array_ + GetSize(), key_array_ + insert_pos + 1);
+  std::move(page_id_array_ + insert_pos, page_id_array_ + GetSize(), page_id_array_ + insert_pos + 1);
+  key_array_[insert_pos] = key;
+  page_id_array_[insert_pos] = value;
   IncreaseSize(1);
-  return true;
+  return GetSize() <= GetMaxSize();
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const KeyType &key, const ValueType &new_node_id) {
+  if (GetSize() == 0) {
+    key_array_[1] = key;
+    page_id_array_[0] = new_node_id;
+    IncreaseSize(1);
+    return;
+  }
   key_array_[GetSize()] = key;
   page_id_array_[GetSize()] = new_node_id;
   IncreaseSize(1);

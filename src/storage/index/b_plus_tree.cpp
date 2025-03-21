@@ -203,6 +203,7 @@ auto BPLUSTREE_TYPE::UpdateRoot(Context *ctx, page_id_t root_page_id) -> bool {
   }
   auto root_page = ctx->header_page_.value().AsMut<BPlusTreeHeaderPage>();
   root_page->root_page_id_ = root_page_id;
+  ctx->root_page_id_ = root_page_id;
   return true;
 }
 /*****************************************************************************
@@ -249,7 +250,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
   leaf_page->SetNextPageId(ctx.write_set_.back().GetPageId());
 
   auto new_key = split_page->KeyAt(0);  // 新分裂的节点的第一个key
-  InsertIntoParent(&ctx, leaf_page_id, new_key, ctx.write_set_.back().GetPageId());
+  InsertIntoParent(&ctx, leaf_page_id, new_key, ctx.write_set_.back().GetPageId(), 0);
   return true;
 }
 
@@ -261,7 +262,7 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
   auto leaf_page_guard = bpm_->WritePage(leaf_page_id);
   auto *leaf_page = leaf_page_guard.AsMut<LeafPage>();
 
-  leaf_page->Init();
+  leaf_page->Init(leaf_max_size_);
   leaf_page->Insert(key, value, comparator_);
   header_page->root_page_id_ = leaf_page_id;
 }
@@ -274,7 +275,7 @@ void BPLUSTREE_TYPE::SplitLeaf(Context *ctx) {
   }
   auto split_page_guard = bpm_->WritePage(split_page_id);
   auto *split_page = split_page_guard.AsMut<LeafPage>();
-  split_page->Init();
+  split_page->Init(leaf_max_size_);
   ctx->write_set_.emplace_back(std::move(split_page_guard));
   // 申请new page后需要init
   auto old_page = ctx->write_set_.rbegin()[1].AsMut<LeafPage>();
@@ -291,55 +292,63 @@ void BPLUSTREE_TYPE::SplitLeaf(Context *ctx) {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::SplitInternal(Context *ctx) {
+void BPLUSTREE_TYPE::SplitInternal(Context *ctx, int recursive_level) {
   page_id_t split_page_id = bpm_->NewPage();
   if (split_page_id == INVALID_PAGE_ID) {
     throw Exception(ExceptionType::OUT_OF_MEMORY, "Out of memory");
   }
   auto split_page_guard = bpm_->WritePage(split_page_id);
   auto *split_page = split_page_guard.AsMut<InternalPage>();
-  split_page->Init();
-  ctx->write_set_.emplace_back(std::move(split_page_guard));
+  split_page->Init(internal_max_size_);
+  // ctx->write_set_.emplace_back(std::move(split_page_guard));
+  ctx->write_set_.insert(ctx->write_set_.end() - 2 * recursive_level - 2, std::move(split_page_guard));
+
+  ctx->print();
+  std::cout << "recursive level: " << recursive_level << std::endl;
+  std::cout << ctx->write_set_.rbegin()[2 * recursive_level + 3].GetPageId() << std::endl;
+  std::cout << ctx->write_set_.rbegin()[2 * recursive_level + 2].GetPageId() << std::endl;
   // 申请new page后需要init
-  auto old_page = ctx->write_set_.rbegin()[1].AsMut<InternalPage>();
-  auto new_page = ctx->write_set_.back().AsMut<InternalPage>();
+  auto old_page = ctx->write_set_.rbegin()[2 * recursive_level + 2 + 1].AsMut<InternalPage>();
+  auto new_page = ctx->write_set_.rbegin()[2 * recursive_level + 2].AsMut<InternalPage>();
   int split_point = old_page->GetSize() / 2;
-  for (int i = split_point + 1; i < old_page->GetSize(); i++) {
+  for (int i = split_point; i < old_page->GetSize(); i++) {
     new_page->InsertNodeAfter(old_page->KeyAt(i), old_page->ValueAt(i));
   }
   old_page->SetSize(split_point);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::InsertIntoParent(Context *ctx, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id) {
+void BPLUSTREE_TYPE::InsertIntoParent(Context *ctx, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id,
+                                      int recursive_level) {
   if (ctx->IsRootPage(old_node_id)) {
     // root page
     auto new_root_page_id = bpm_->NewPage();
     auto new_root_page_guard = bpm_->WritePage(new_root_page_id);
     auto *new_root_page = new_root_page_guard.AsMut<InternalPage>();
-    new_root_page->Init();
-    ctx->write_set_.emplace_back(std::move(new_root_page_guard));
-    auto *root_page = ctx->write_set_.back().AsMut<InternalPage>();
+    new_root_page->Init(internal_max_size_);
+    // ctx->write_set_.emplace_back(std::move(new_root_page_guard));
+    ctx->write_set_.push_front(std::move(new_root_page_guard));
+    auto *root_page = ctx->write_set_.front().AsMut<InternalPage>();
     root_page->PopulateNewRoot(old_node_id, key, new_node_id);
     UpdateRoot(ctx, new_root_page_id);
     return;
   }
 
   // get parent page
-  auto parent_page_id = ctx->write_set_.rbegin()[1].GetPageId();
-  auto parent_page_guard = bpm_->WritePage(parent_page_id);
-  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+  ctx->print();
+  auto parent_page_id = ctx->write_set_.rbegin()[2 * recursive_level + 2].GetPageId();
+
+  auto parent_page = ctx->write_set_.rbegin()[2 * recursive_level + 2].AsMut<InternalPage>();
   if (parent_page->Insert(key, new_node_id, comparator_)) {
     return;
   }
 
   // parent page is full, first split parent page
-  SplitInternal(ctx);
+  SplitInternal(ctx, recursive_level);
   auto new_page_id = ctx->write_set_.back().GetPageId();
-  auto new_page_guard = bpm_->WritePage(new_page_id);
-  auto new_page = new_page_guard.AsMut<InternalPage>();
-  auto new_key = new_page->KeyAt(0);
-  InsertIntoParent(ctx, parent_page_id, new_key, new_page_id);
+  auto new_page = ctx->write_set_.back().AsMut<InternalPage>();
+  auto new_key = new_page->KeyAt(1);
+  InsertIntoParent(ctx, parent_page_id, new_key, new_page_id, recursive_level + 1);
 }
 
 // INDEX_TEMPLATE_ARGUMENTS

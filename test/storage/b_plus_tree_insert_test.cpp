@@ -76,6 +76,8 @@ TEST(BPlusTreeTests, InsertTest1NoIterator) {
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
+    auto tree_string = tree.DrawBPlusTree();
+    std::cout << tree_string << std::endl;
   }
 
   bool is_present;
@@ -115,9 +117,11 @@ TEST(BPlusTreeTests, InsertTest2) {
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
+    auto tree_string = tree.DrawBPlusTree();
+    std::cout << tree_string << std::endl;
   }
-  tree.DrawBPlusTree();
-
+  auto tree_string = tree.DrawBPlusTree();
+  std::cout << tree_string << std::endl;
   std::vector<RID> rids;
   for (auto key : keys) {
     rids.clear();
