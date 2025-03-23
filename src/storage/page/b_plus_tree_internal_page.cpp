@@ -113,12 +113,12 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Insert(const KeyType &key, const ValueType 
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const KeyType &key, const ValueType &new_node_id) {
-  if (GetSize() == 0) {
-    key_array_[1] = key;
-    page_id_array_[0] = new_node_id;
-    IncreaseSize(1);
-    return;
-  }
+  // if (GetSize() == 0) {
+  //   key_array_[1] = key;
+  //   page_id_array_[0] = new_node_id;
+  //   IncreaseSize(1);
+  //   return;
+  // }
   key_array_[GetSize()] = key;
   page_id_array_[GetSize()] = new_node_id;
   IncreaseSize(1);

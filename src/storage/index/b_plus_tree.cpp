@@ -240,7 +240,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     return false;
   }
   // 2. leaf node is  not full
-  if (new_size < leaf_page->GetMaxSize()) {
+  if (new_size <= leaf_page->GetMaxSize()) {
     return true;
   }
   // 3. leaf node is full
@@ -304,9 +304,9 @@ void BPLUSTREE_TYPE::SplitInternal(Context *ctx, int recursive_level) {
   ctx->write_set_.insert(ctx->write_set_.end() - 2 * recursive_level - 2, std::move(split_page_guard));
 
   ctx->print();
-  std::cout << "recursive level: " << recursive_level << std::endl;
-  std::cout << ctx->write_set_.rbegin()[2 * recursive_level + 3].GetPageId() << std::endl;
-  std::cout << ctx->write_set_.rbegin()[2 * recursive_level + 2].GetPageId() << std::endl;
+  // std::cout << "recursive level: " << recursive_level << std::endl;
+  // std::cout << ctx->write_set_.rbegin()[2 * recursive_level + 3].GetPageId() << std::endl;
+  // std::cout << ctx->write_set_.rbegin()[2 * recursive_level + 2].GetPageId() << std::endl;
   // 申请new page后需要init
   auto old_page = ctx->write_set_.rbegin()[2 * recursive_level + 2 + 1].AsMut<InternalPage>();
   auto new_page = ctx->write_set_.rbegin()[2 * recursive_level + 2].AsMut<InternalPage>();
@@ -328,6 +328,7 @@ void BPLUSTREE_TYPE::InsertIntoParent(Context *ctx, page_id_t old_node_id, const
     new_root_page->Init(internal_max_size_);
     // ctx->write_set_.emplace_back(std::move(new_root_page_guard));
     ctx->write_set_.push_front(std::move(new_root_page_guard));
+    ctx->print();
     auto *root_page = ctx->write_set_.front().AsMut<InternalPage>();
     root_page->PopulateNewRoot(old_node_id, key, new_node_id);
     UpdateRoot(ctx, new_root_page_id);
@@ -345,9 +346,10 @@ void BPLUSTREE_TYPE::InsertIntoParent(Context *ctx, page_id_t old_node_id, const
 
   // parent page is full, first split parent page
   SplitInternal(ctx, recursive_level);
-  auto new_page_id = ctx->write_set_.back().GetPageId();
-  auto new_page = ctx->write_set_.back().AsMut<InternalPage>();
-  auto new_key = new_page->KeyAt(1);
+  auto new_page_id = ctx->write_set_.rbegin()[2 * recursive_level + 2].GetPageId();
+  auto new_page = ctx->write_set_.rbegin()[2 * recursive_level + 2].AsMut<InternalPage>();
+  auto new_key = new_page->KeyAt(0);
+  std::cout << "new key: " << new_key << std::endl;
   InsertIntoParent(ctx, parent_page_id, new_key, new_page_id, recursive_level + 1);
 }
 
