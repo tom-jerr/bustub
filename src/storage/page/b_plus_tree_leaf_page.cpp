@@ -92,12 +92,18 @@ INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertAllNodeAfter(BPlusTreeLeafPage *node) {
   auto size = GetSize();
   auto node_size = node->GetSize();
-  std::move(node->key_array_, node->key_array_ + GetSize(), key_array_ + size);
-  std::move(node->rid_array_, node->rid_array_ + GetSize(), rid_array_ + size);
+  if (node_size == 0) {
+    return;
+  }
+  std::move(node->key_array_, node->key_array_ + node->GetSize(), key_array_ + size);
+  std::move(node->rid_array_, node->rid_array_ + node->GetSize(), rid_array_ + size);
   IncreaseSize(node_size);
 }
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertAllNodeBefore(BPlusTreeLeafPage *node) {
+  if (node->GetSize() == 0) {
+    return;
+  }
   std::move_backward(key_array_, key_array_ + GetSize(), key_array_ + node->GetSize() + GetSize());
   std::move_backward(rid_array_, rid_array_ + GetSize(), rid_array_ + node->GetSize() + GetSize());
   std::copy(node->key_array_, node->key_array_ + node->GetSize(), key_array_);
@@ -171,17 +177,21 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::Lookup(const KeyType &key, std::vector<ValueTyp
   // binary search
   int left = 0;
   int right = GetSize() - 1;
+
+  // 二分查找
   while (left <= right) {
-    int mid = (left + right) / 2;
-    if (comparator(key, key_array_[mid]) == 0) {
+    int mid = left + (right - left) / 2;
+    if (comparator(KeyAt(mid), key) > 0) {
+      right = mid - 1;
+    } else if (comparator(KeyAt(mid), key) < 0) {
+      left = mid + 1;
+    } else {
       result->emplace_back(rid_array_[mid]);
       return true;
-    } else if (comparator(key, key_array_[mid]) < 0) {
-      right = mid - 1;
-    } else {
-      left = mid + 1;
     }
   }
+
+  // 如果未找到匹配的键值，则返回false
   return false;
 }
 

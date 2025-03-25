@@ -58,6 +58,9 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType { ret
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
   auto it = std::find_if(page_id_array_, page_id_array_ + GetSize(), [&](const ValueType &v) { return v == value; });
+  if (it == page_id_array_ + GetSize()) {
+    return -1;
+  }
   return std::distance(page_id_array_, it);
 }
 INDEX_TEMPLATE_ARGUMENTS
@@ -112,13 +115,19 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Insert(const KeyType &key, const ValueType 
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyAfter(const KeyType &key, const KeyComparator &comparator) {
+  key_array_[GetSize()] = key;
+  // IncreaseSize(1);
+}
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyBefore(const KeyType &key, const KeyComparator &comparator) {
+  std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + 1);
+  key_array_[1] = key;
+  // IncreaseSize(1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const KeyType &key, const ValueType &new_node_id) {
-  // if (GetSize() == 0) {
-  //   key_array_[1] = key;
-  //   page_id_array_[0] = new_node_id;
-  //   IncreaseSize(1);
-  //   return;
-  // }
   key_array_[GetSize()] = key;
   page_id_array_[GetSize()] = new_node_id;
   IncreaseSize(1);
@@ -134,17 +143,36 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeBefore(const KeyType &key, const 
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeAfter(BPlusTreeInternalPage *node) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeAfter(BPlusTreeInternalPage *node, const KeyComparator &comparator) {
   auto size = GetSize();
   auto node_size = node->GetSize();
-  std::move(node->key_array_ + 1, node->key_array_ + node_size, key_array_ + size);
-  std::move(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_ + size);
+  if (node_size == 1) {
+    if (comparator(node->KeyAt(1), node->KeyAt(2)) != 0) {  // don't need to insert the key
+      key_array_[size] = node->KeyAt(1);
+    }
+    page_id_array_[size] = node->ValueAt(0);
+    IncreaseSize(1);
+    return;
+  }
+  std::copy(node->key_array_ + 1, node->key_array_ + node_size, key_array_ + size + 1);
+  std::copy(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_ + size);
   IncreaseSize(node_size);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeBefore(BPlusTreeInternalPage *node) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeBefore(BPlusTreeInternalPage *node, const KeyComparator &comparator) {
   auto node_size = node->GetSize();
+  if (node_size == 1) {
+    if (comparator(node->KeyAt(1), node->KeyAt(2)) != 0) {
+      std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + node_size);
+
+      key_array_[1] = node->KeyAt(node_size);
+    }
+    std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + node_size);
+    std::copy(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_);
+    IncreaseSize(node_size);
+    return;
+  }
   std::move_backward(key_array_, key_array_ + GetSize(), key_array_ + GetSize() + node_size);
   std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + node_size);
   std::copy(node->key_array_ + 1, node->key_array_ + node_size, key_array_);
@@ -193,10 +221,19 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() -> page_id_t {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(int index) {
-  std::move(key_array_ + index + 1, key_array_ + GetSize(), key_array_ + index);
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(const KeyType &key, int index, const KeyComparator &comparator) -> bool {
+  auto key_index = index % 2 ? index : index + 1;
+  if (comparator(key_array_[key_index], key) == 0) {
+    if (GetSize() == key_index + 1) {
+      key_array_[key_index] = key_array_[key_index + 1];
+    } else {
+      std::move(key_array_ + key_index + 1, key_array_ + GetSize(), key_array_ + key_index);
+    }
+  }
+
   std::move(page_id_array_ + index + 1, page_id_array_ + GetSize(), page_id_array_ + index);
   IncreaseSize(-1);
+  return GetSize() >= GetMinSize();
 }
 
 // valuetype for internalNode should be page id_t

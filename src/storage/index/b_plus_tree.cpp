@@ -90,7 +90,6 @@ auto BPLUSTREE_TYPE::FindSearchLeafPage(Context *ctx, const KeyType &key, const 
     child_pid = child_internal_page->Lookup(key, comparator);
   }
   return child_pid;
-  // return INVALID_PAGE_ID;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -381,87 +380,96 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
     return;
   }
   auto leaf_page_id = FindLeafPage(&ctx, Operation::REMOVE, key, comparator_);
-  auto leaf_page = ctx.write_set_.back().template AsMut<LeafPage>();
-  // remove key from leaf page
-  if (!leaf_page->RemoveAndDeleteRecord(key, comparator_)) {
-    return;
-  }
-  // check leaf node whether it is underflow or not
-  if (leaf_page->GetSize() >= leaf_page->GetMinSize()) {
-    return;
-  }
+
   // coalesce or redistribute
-  CoalesceOrRedistribute(&ctx, leaf_page_id);
+  DeleteEntry(&ctx, key, -1, leaf_page_id, 0);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::CoalesceOrRedistribute(Context *ctx, page_id_t old_page_id) -> bool {
-  if (ctx->IsRootPage(old_page_id)) {
+auto BPLUSTREE_TYPE::DeleteEntry(Context *ctx, const KeyType &key, int delete_index, page_id_t current_page_id,
+                                 int recursive_level) -> bool {
+  if (recursive_level == 0) {
+    auto leaf_page = ctx->write_set_.back().template AsMut<LeafPage>();
+    // remove key from leaf page
+    if (!leaf_page->RemoveAndDeleteRecord(key, comparator_)) {
+      return true;
+    }
+    // check leaf node whether it is underflow or not
+    if (leaf_page->GetSize() >= leaf_page->GetMinSize()) {
+      return true;
+    }
+  } else {
+    auto internal_page = ctx->write_set_.rbegin()[recursive_level].AsMut<InternalPage>();
+    // remove key from internal page
+    internal_page->Remove(key, delete_index, comparator_);
+    // check internal node whether it is underflow or not
+    if (internal_page->GetSize() >= internal_page->GetMinSize()) {
+      return true;
+    }
+  }
+
+  if (ctx->IsRootPage(current_page_id)) {
     AdjustRoot(ctx);
     return true;
   }
   // get parent page
-  auto parent_page_id = ctx->write_set_.rbegin()[1].GetPageId();
-  auto parent_page_guard = bpm_->WritePage(parent_page_id);
-  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+  // auto parent_page_id = ctx->write_set_.rbegin()[1].GetPageId();
+  auto parent_page = ctx->write_set_.rbegin()[recursive_level + 1].AsMut<InternalPage>();
+  // auto parent_page = parent_page_guard.AsMut<InternalPage>();
   if (parent_page->GetSize() == 1) {
     return true;
   }
   // find the index of old page in parent page
-  auto old_page_index = parent_page->ValueIndex(old_page_id);
+  auto old_page_index = parent_page->ValueIndex(current_page_id);
   BUSTUB_ASSERT(old_page_index >= 0 && old_page_index < parent_page->GetSize(), "old page index is invalid");
-  auto sibling_index = old_page_index == 0 ? 1 : old_page_index - 1;
-  auto sibling_page_id = parent_page->ValueAt(sibling_index);
-  auto sibling_page_guard = bpm_->WritePage(sibling_page_id);
-  ctx->write_set_.emplace_back(std::move(sibling_page_guard));
-  bool redistribute = Redistribute(ctx, old_page_index);
+  auto sibling_index = old_page_index == 0 ? old_page_index + 1 : old_page_index - 1;
+  auto key_index = old_page_index == 0 ? 1 : old_page_index;
+  auto parent_key = parent_page->KeyAt(key_index);
+  bool redistribute = Redistribute(ctx, old_page_index, sibling_index, recursive_level);
+
+  [[maybe_unused]] bool coalesec = false;
   if (!redistribute) {
-    if (old_page_index == 0) {
-      Coalesce(ctx, sibling_index, true);
+    if (old_page_index != 0) {
+      coalesec = Coalesce(ctx, sibling_index, true, recursive_level, parent_key);
     } else {
-      Coalesce(ctx, old_page_index, false);
+      coalesec = Coalesce(ctx, sibling_index, false, recursive_level, parent_key);
     }
   }
   return true;
 }
 // borrow from sibling
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Redistribute(Context *ctx, int index) -> bool {
-  auto neighbor_page_id = ctx->write_set_.back().GetPageId();
-  auto old_page_id = ctx->write_set_.rbegin()[1].GetPageId();
-  auto parent_page_id = ctx->write_set_.rbegin()[2].GetPageId();
+auto BPLUSTREE_TYPE::Redistribute(Context *ctx, int old_index, int sibling_index, int recursive_level) -> bool {
+  auto parent_page = ctx->write_set_.rbegin()[recursive_level + 1].AsMut<InternalPage>();
 
-  auto parent_page_guard = bpm_->WritePage(parent_page_id);
-  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+  auto old_page = ctx->write_set_.rbegin()[recursive_level].AsMut<BPlusTreePage>();
 
-  auto old_page_guard = bpm_->WritePage(old_page_id);
-  auto old_page = old_page_guard.AsMut<BPlusTreePage>();
-
+  auto neighbor_page_id = parent_page->ValueAt(sibling_index);
   auto neighbor_page_guard = bpm_->WritePage(neighbor_page_id);
-  auto neighbor_page = neighbor_page_guard.AsMut<BPlusTreePage>();
+  auto neighbor_page = neighbor_page_guard.template AsMut<BPlusTreePage>();
 
   if (neighbor_page->GetSize() <= neighbor_page->GetMinSize()) {
     return false;
   }
   if (old_page->IsLeafPage()) {
-    auto leaf_page = old_page_guard.AsMut<LeafPage>();
-    auto neighbor_leaf_page = neighbor_page_guard.AsMut<LeafPage>();
-    if (index == 0) {
+    auto leaf_page = ctx->write_set_.rbegin()[recursive_level].AsMut<LeafPage>();
+    auto neighbor_leaf_page = neighbor_page_guard.template AsMut<LeafPage>();
+    if (old_index == 0) {
       neighbor_leaf_page->MoveFirstToEndOf(leaf_page);
-      parent_page->SetKeyAt(index + 1, neighbor_leaf_page->KeyAt(0));
+      parent_page->SetKeyAt(old_index + 1, neighbor_leaf_page->KeyAt(0));
     } else {
       neighbor_leaf_page->MoveLastToFrontOf(leaf_page);
-      parent_page->SetKeyAt(index, leaf_page->KeyAt(0));
+      parent_page->SetKeyAt(old_index, leaf_page->KeyAt(0));
     }
   } else {
-    auto internal_page = old_page_guard.AsMut<InternalPage>();
-    auto neighbor_internal_page = neighbor_page_guard.AsMut<InternalPage>();
-    if (index == 0) {
+    auto internal_page = ctx->write_set_.rbegin()[recursive_level].AsMut<InternalPage>();
+    auto neighbor_internal_page = neighbor_page_guard.template AsMut<InternalPage>();
+    if (old_index == 0) {
       neighbor_internal_page->MoveFirstToEndOf(internal_page);
-      parent_page->SetKeyAt(index + 1, neighbor_internal_page->KeyAt(0));
+      parent_page->SetKeyAt(old_index + 1, neighbor_internal_page->KeyAt(0));
     } else {
       neighbor_internal_page->MoveLastToFrontOf(internal_page);
-      parent_page->SetKeyAt(index, internal_page->KeyAt(0));
+      parent_page->SetKeyAt(old_index, internal_page->KeyAt(0));
     }
   }
   return true;
@@ -469,49 +477,56 @@ auto BPLUSTREE_TYPE::Redistribute(Context *ctx, int index) -> bool {
 
 // coalesce is to merge old page and sibling page
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Coalesce(Context *ctx, int index, bool node_first) -> bool {
+auto BPLUSTREE_TYPE::Coalesce(Context *ctx, int sibling_index, bool sibling_is_predecessor, int recursive_level,
+                              const KeyType &parent_key) -> bool {
   page_id_t neighbor_page_id = INVALID_PAGE_ID;
-  page_id_t old_page_id = INVALID_PAGE_ID;
-  page_id_t parent_page_id = INVALID_PAGE_ID;
-  if (node_first) {
-    old_page_id = ctx->write_set_.back().GetPageId();
-    neighbor_page_id = ctx->write_set_.rbegin()[1].GetPageId();
-    parent_page_id = ctx->write_set_.rbegin()[2].GetPageId();
-  } else {
-    old_page_id = ctx->write_set_.back().GetPageId();
-    neighbor_page_id = ctx->write_set_.rbegin()[1].GetPageId();
-    parent_page_id = ctx->write_set_.rbegin()[2].GetPageId();
-  }
 
-  auto parent_page_guard = bpm_->WritePage(parent_page_id);
-  auto parent_page = parent_page_guard.AsMut<InternalPage>();
+  auto parent_page_id = ctx->write_set_.rbegin()[recursive_level + 1].GetPageId();
 
-  auto old_page_guard = bpm_->WritePage(old_page_id);
-  auto old_page = old_page_guard.AsMut<BPlusTreePage>();
+  auto parent_page = ctx->write_set_.rbegin()[recursive_level + 1].AsMut<InternalPage>();
 
+  auto old_page = ctx->write_set_.rbegin()[recursive_level].AsMut<BPlusTreePage>();
+  neighbor_page_id = parent_page->ValueAt(sibling_index);
   auto neighbor_page_guard = bpm_->WritePage(neighbor_page_id);
   auto neighbor_page = neighbor_page_guard.AsMut<BPlusTreePage>();
-
   if ((neighbor_page->GetSize() + old_page->GetSize()) > old_page->GetMaxSize()) {
     return false;
   }
   if (old_page->IsLeafPage()) {
-    auto leaf_page = old_page_guard.AsMut<LeafPage>();
+    auto leaf_page = ctx->write_set_.rbegin()[recursive_level].AsMut<LeafPage>();
     auto neighbor_leaf_page = neighbor_page_guard.AsMut<LeafPage>();
 
     // merge old page and neighbor page
-    neighbor_leaf_page->InsertAllNodeAfter(leaf_page);
-    neighbor_leaf_page->SetNextPageId(leaf_page->GetNextPageId());
+    if (!sibling_is_predecessor) {
+      // neighbor_leaf_page->InsertAllNodeBefore(leaf_page);
+      leaf_page->InsertAllNodeAfter(neighbor_leaf_page);
+      leaf_page->SetNextPageId(neighbor_leaf_page->GetNextPageId());
+    } else {
+      neighbor_leaf_page->InsertAllNodeAfter(leaf_page);
+      neighbor_leaf_page->SetNextPageId(leaf_page->GetNextPageId());
+    }
+
+    // neighbor_leaf_page->SetNextPageId(leaf_page->GetNextPageId());
   } else {
-    auto internal_page = old_page_guard.AsMut<InternalPage>();
+    auto internal_page = ctx->write_set_.rbegin()[recursive_level].AsMut<InternalPage>();
     auto neighbor_internal_page = neighbor_page_guard.AsMut<InternalPage>();
     // merge old page and neighbor page
-    neighbor_internal_page->InsertAllNodeAfter(internal_page);
+    if (!sibling_is_predecessor) {
+      internal_page->InsertKeyAfter(parent_key, comparator_);
+      internal_page->InsertAllNodeAfter(neighbor_internal_page, comparator_);
+    } else {
+      neighbor_internal_page->InsertKeyAfter(parent_key, comparator_);
+      neighbor_internal_page->InsertAllNodeAfter(internal_page, comparator_);
+    }
   }
-  parent_page->Remove(index);
-  if (parent_page->GetSize() < parent_page->GetMinSize()) {
-    CoalesceOrRedistribute(ctx, parent_page_id);
-  }
+  // parent_page->Remove(old_index, key, comparator_);
+  // if (parent_page->GetSize() < parent_page->GetMinSi)) {
+  auto delete_index = sibling_is_predecessor
+                          ? parent_page->ValueIndex(ctx->write_set_.rbegin()[recursive_level].GetPageId())
+                          : parent_page->ValueIndex(neighbor_page_id);
+  DeleteEntry(ctx, parent_key, delete_index, parent_page_id, recursive_level + 1);
+  // }
+
   return true;
 }
 

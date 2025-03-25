@@ -114,12 +114,14 @@ class BPlusTree {
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
 
-  // coalesce
-  auto CoalesceOrRedistribute(Context *ctx, page_id_t old_page_id) -> bool;
+  // TODO(LZY): delete需要全部重写
+  auto DeleteEntry(Context *ctx, const KeyType &key, int delete_index, page_id_t current_page_id, int recursive_level)
+      -> bool;
 
-  auto Coalesce(Context *ctx, int index, bool node_first) -> bool;
+  auto Coalesce(Context *ctx, int sibling_index, bool sibling_is_predecessor, int recursive_level,
+                const KeyType &parent_key) -> bool;
 
-  auto Redistribute(Context *ctx, int index) -> bool;
+  auto Redistribute(Context *ctx, int old_index, int sibling_index, int recursive_level) -> bool;
 
   void AdjustRoot(Context *ctx);
 

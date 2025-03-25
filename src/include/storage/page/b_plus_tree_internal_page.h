@@ -83,10 +83,12 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto Lookup(const KeyType &key, const KeyComparator &comparator) const -> ValueType;
 
   void PopulateNewRoot(const ValueType &old_node_id, const KeyType &new_key, const ValueType &new_node_id);
+  void InsertKeyAfter(const KeyType &key, const KeyComparator &comparator);
+  void InsertKeyBefore(const KeyType &key, const KeyComparator &comparator);
   void InsertNodeAfter(const KeyType &key, const ValueType &new_node_id);
   void InsertNodeBefore(const KeyType &key, const ValueType &new_node_id);
-  void InsertAllNodeAfter(BPlusTreeInternalPage *node);
-  void InsertAllNodeBefore(BPlusTreeInternalPage *node);
+  void InsertAllNodeAfter(BPlusTreeInternalPage *node, const KeyComparator &comparator);
+  void InsertAllNodeBefore(BPlusTreeInternalPage *node, const KeyComparator &comparator);
   void MoveFirstToEndOf(BPlusTreeInternalPage *recipient);
   void MoveLastToFrontOf(BPlusTreeInternalPage *recipient);
   void CopyFirstFrom(const KeyType &key, const ValueType &value);
@@ -94,8 +96,8 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
 
   auto RemoveAndReturnOnlyChild() -> page_id_t;
-  void Remove(int index);
-
+  auto Remove(const KeyType &key, int index, const KeyComparator &comparator) -> bool;
+  // void RemoveKey(const KeyType &key, const KeyComparator &comparator);
   /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
