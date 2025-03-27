@@ -120,7 +120,7 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
  */
 void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType access_type) {
   std::scoped_lock<std::mutex> lru_latch(latch_);
-  if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
+  if (frame_id > static_cast<frame_id_t>(replacer_size_)) {
     throw Exception("frame id is invalid");
   }
   // SetEvictable(frame_id, false);

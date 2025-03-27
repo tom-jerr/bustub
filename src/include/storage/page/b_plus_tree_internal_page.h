@@ -80,7 +80,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    */
   auto ValueAt(int index) const -> ValueType;
   void SetValueAt(int index, const ValueType &value);
-  auto Lookup(const KeyType &key, const KeyComparator &comparator) const -> ValueType;
+  auto Lookup(const KeyType &key, const KeyComparator &comparator, int leftmost, int rightmost) const -> ValueType;
 
   void PopulateNewRoot(const ValueType &old_node_id, const KeyType &new_key, const ValueType &new_node_id);
   void InsertKeyAfter(const KeyType &key, const KeyComparator &comparator);

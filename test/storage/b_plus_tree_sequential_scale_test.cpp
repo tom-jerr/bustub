@@ -54,10 +54,13 @@ TEST(BPlusTreeTests, BasicScaleTest) {  // NOLINT
     int64_t value = key & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
+    // std::cout << "Inserting key: " << key << std::endl;
     tree.Insert(index_key, rid);
+    // auto tree_string = tree.DrawBPlusTree();
+    // std::cout << tree_string << std::endl;
   }
-  auto tree_string = tree.DrawBPlusTree();
-  std::cout << tree_string << std::endl;
+  // auto tree_string = tree.DrawBPlusTree();
+  // std::cout << tree_string << std::endl;
   std::vector<RID> rids;
   for (auto key : keys) {
     rids.clear();

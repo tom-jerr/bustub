@@ -18,6 +18,7 @@
 #include <thread>  // NOLINT
 
 #include "buffer/buffer_pool_manager.h"
+#include "common/logger.h"
 #include "gtest/gtest.h"
 #include "storage/disk/disk_manager_memory.h"
 #include "storage/index/b_plus_tree.h"
@@ -54,6 +55,9 @@ void InsertHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree->Insert(index_key, rid);
+    // LOG_DEBUG("Insert key %ld", key);
+    // auto tree_string = tree->DrawBPlusTree();
+    // LOG_DEBUG("%s", tree_string.c_str());
   }
 }
 
@@ -81,6 +85,9 @@ void DeleteHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
   for (auto key : remove_keys) {
     index_key.SetFromInteger(key);
     tree->Remove(index_key);
+    // LOG_DEBUG("Delete key %ld", key);
+    // auto tree_string = tree->DrawBPlusTree();
+    // LOG_DEBUG("%s", tree_string.c_str());
   }
 }
 
@@ -443,27 +450,27 @@ void MixTest2Call() {
   }
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest1) {  // NOLINT
-  InsertTest1Call();
-}
+// TEST(BPlusTreeConcurrentTest, InsertTest1) {  // NOLINT
+//   InsertTest1Call();
+// }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {  // NOLINT
-  InsertTest2Call();
-}
+// TEST(BPlusTreeConcurrentTest, InsertTest2) {  // NOLINT
+//   InsertTest2Call();
+// }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest1) {  // NOLINT
-  DeleteTest1Call();
-}
+// TEST(BPlusTreeConcurrentTest, DeleteTest1) {  // NOLINT
+//   DeleteTest1Call();
+// }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest2) {  // NOLINT
-  DeleteTest2Call();
-}
+// TEST(BPlusTreeConcurrentTest, DeleteTest2) {  // NOLINT
+//   DeleteTest2Call();
+// }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_MixTest1) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, MixTest1) {  // NOLINT
   MixTest1Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_MixTest2) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, MixTest2) {  // NOLINT
   MixTest2Call();
 }
 }  // namespace bustub

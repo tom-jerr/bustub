@@ -103,6 +103,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
       kstr.append(std::to_string(key.ToString()));
     }
     kstr.append(")");
+    kstr.append("Next: " + std::to_string(GetNextPageId()));
 
     return kstr;
   }

@@ -56,12 +56,15 @@ class Context {
 
   auto IsRootPage(page_id_t page_id) -> bool { return page_id == root_page_id_; }
 
-  void ReleaseWriteLatch() {
+  void ReleaseWriteLatchExceptLast() {
+    if (header_page_.has_value()) {
+      header_page_.reset();
+    }
     if (write_set_.empty() || write_set_.size() == 1) {
       return;
     }
     for (size_t i = 0; i < write_set_.size() - 1; i++) {
-      write_set_.pop_back();
+      write_set_.pop_front();
     }
   }
   void print() {
@@ -95,10 +98,15 @@ class BPlusTree {
                      int internal_max_size = INTERNAL_PAGE_SLOT_CNT);
 
   auto UpdateRoot(Context *ctx, page_id_t root_page_id) -> bool;
-  auto FindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
-  auto FindSearchLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
-  auto FindInsertLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
-  auto FindRemoveLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator) -> page_id_t;
+  // leftmost 和 rightmost是为了实现Begin()和end()
+  auto FindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator, int leftmost,
+                    int rightmost) -> page_id_t;
+  auto FindSearchLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
+                          int rightmost) -> page_id_t;
+  auto FindInsertLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
+                          int rightmost) -> page_id_t;
+  auto FindRemoveLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
+                          int rightmost) -> page_id_t;
   auto CreateNewNode() -> page_id_t;
   // Returns true if this B+ tree has no keys and values.
   auto IsEmpty() const -> bool;

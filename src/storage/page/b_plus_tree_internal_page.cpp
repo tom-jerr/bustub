@@ -64,7 +64,14 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const ->
   return std::distance(page_id_array_, it);
 }
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyComparator &comparator) const -> ValueType {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyComparator &comparator, int leftmost,
+                                            int rightmost) const -> ValueType {
+  if (leftmost) {
+    return page_id_array_[0];
+  }
+  if (rightmost) {
+    return page_id_array_[GetSize() - 1];
+  }
   int l = 1;
   int r = GetSize() - 1;
   while (l < r) {
