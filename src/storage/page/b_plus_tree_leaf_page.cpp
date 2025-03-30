@@ -89,14 +89,14 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertNodeBefore(const KeyType &key, const Valu
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertAllNodeAfter(BPlusTreeLeafPage *node) {
+void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertAllNodeAfterFrom(BPlusTreeLeafPage *node) {
   auto size = GetSize();
   auto node_size = node->GetSize();
   if (node_size == 0) {
     return;
   }
-  std::move(node->key_array_, node->key_array_ + node->GetSize(), key_array_ + size);
-  std::move(node->rid_array_, node->rid_array_ + node->GetSize(), rid_array_ + size);
+  std::copy(node->key_array_, node->key_array_ + node->GetSize(), key_array_ + size);
+  std::copy(node->rid_array_, node->rid_array_ + node->GetSize(), rid_array_ + size);
   IncreaseSize(node_size);
 }
 INDEX_TEMPLATE_ARGUMENTS
@@ -151,7 +151,8 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyIndex(const KeyType &key, const KeyComparato
   auto target =
       std::lower_bound(key_array_, key_array_ + GetSize(), key,
                        [&keyComparator](const KeyType &a, const KeyType &b) { return keyComparator(a, b) < 0; });
-  return std::distance(key_array_, target);
+  auto distance = std::distance(key_array_, target);
+  return distance;
 }
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeLeafPage *split_node) {

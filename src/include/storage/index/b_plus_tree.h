@@ -14,6 +14,7 @@
 #include <deque>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <queue>
 #include <shared_mutex>
@@ -41,6 +42,7 @@ struct PrintableBPlusTree;
  */
 class Context {
  public:
+  // std::mutex mutex_;
   // When you insert into / remove from the B+ tree, store the write guard of header page here.
   // Remember to drop the header page guard and set it to nullopt when you want to unlock all.
   std::optional<WritePageGuard> header_page_{std::nullopt};
@@ -54,7 +56,22 @@ class Context {
   // You may want to use this when getting value, but not necessary.
   std::deque<ReadPageGuard> read_set_;
 
-  auto IsRootPage(page_id_t page_id) -> bool { return page_id == root_page_id_; }
+  // ~Context() {
+  //   if (header_page_.has_value()) {
+  //     header_page_ = std::nullopt;
+  //   }
+  //   for (auto &w : write_set_) {
+  //     w.Drop();
+  //   }
+  //   for (auto &r : read_set_) {
+  //     r.Drop();
+  //   }
+  // }
+
+  auto IsRootPage(page_id_t page_id) -> bool {
+    // std::lock_guard lock(mutex_);
+    return page_id == root_page_id_;
+  }
 
   void ReleaseWriteLatchExceptLast() {
     if (header_page_.has_value()) {
@@ -107,18 +124,19 @@ class BPlusTree {
                           int rightmost) -> page_id_t;
   auto FindRemoveLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
                           int rightmost) -> page_id_t;
-  auto CreateNewNode() -> page_id_t;
+  // auto CreateNewNode() -> page_id_t;
   // Returns true if this B+ tree has no keys and values.
   auto IsEmpty() const -> bool;
+  auto IsEmpty(Context *ctx) const -> bool;
 
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
-  void StartNewTree(const KeyType &key, const ValueType &value);
+  auto StartNewTree(Context *ctx, const KeyType &key, const ValueType &value) -> bool;
   void InsertIntoParent(Context *context, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id,
                         int recursive_level);
 
-  void SplitLeaf(Context *ctx);
-  void SplitInternal(Context *ctx, int recursive_level);
+  auto SplitLeaf(Context *ctx) -> KeyType;
+  auto SplitInternal(Context *ctx, int recursive_level) -> KeyType;
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
 
@@ -129,7 +147,8 @@ class BPlusTree {
   auto Coalesce(Context *ctx, int sibling_index, bool sibling_is_predecessor, int recursive_level,
                 const KeyType &parent_key) -> bool;
 
-  auto Redistribute(Context *ctx, int old_index, int sibling_index, int recursive_level) -> bool;
+  auto Redistribute(Context *ctx, int old_index, int sibling_index, int recursive_level, const KeyType &parent_key)
+      -> bool;
 
   void AdjustRoot(Context *ctx);
 
@@ -204,6 +223,8 @@ class BPlusTree {
   int leaf_max_size_;
   int internal_max_size_;
   page_id_t header_page_id_;
+
+  // std::mutex log_mutex_;
 };
 
 /**

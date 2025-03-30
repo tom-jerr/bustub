@@ -16,6 +16,7 @@
 
 #include "common/config.h"
 #include "common/exception.h"
+#include "common/logger.h"
 #include "common/macros.h"
 #include "storage/page/b_plus_tree_internal_page.h"
 #include "storage/page/b_plus_tree_page.h"
@@ -66,6 +67,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const ->
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyComparator &comparator, int leftmost,
                                             int rightmost) const -> ValueType {
+  BUSTUB_ASSERT(GetSize() > 0, "size should be greater than 0");
   if (leftmost) {
     return page_id_array_[0];
   }
@@ -83,8 +85,10 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyCompara
     }
   }
   if (comparator(key_array_[l], key) > 0) {
+    LOG_DEBUG("key: %ld, pid: %d", key.ToString(), page_id_array_[l - 1]);
     return page_id_array_[l - 1];  // 当前节点
   }
+  LOG_DEBUG("key: %ld, pid: %d", key.ToString(), page_id_array_[l]);
   return page_id_array_[l];
 }
 
@@ -98,43 +102,82 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_node_i
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator)
-    -> bool {
-  // 查找插入位置
-  int insert_pos = 0;
-  while (insert_pos < GetSize() && comparator(key, key_array_[insert_pos]) > 0) {
-    insert_pos++;
-  }
-  if (insert_pos == 0) {
-    std::move(key_array_ + 1, key_array_ + GetSize(), key_array_ + 2);
-    std::move(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + 1);
-    key_array_[1] = key;
-    page_id_array_[0] = value;
-    IncreaseSize(1);
-    return GetSize() <= GetMaxSize();
-  }
-  std::move(key_array_ + insert_pos, key_array_ + GetSize(), key_array_ + insert_pos + 1);
-  std::move(page_id_array_ + insert_pos, page_id_array_ + GetSize(), page_id_array_ + insert_pos + 1);
-  key_array_[insert_pos] = key;
-  page_id_array_[insert_pos] = value;
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfValueTo(BPlusTreeInternalPage *recipient) {
+  // Move half of the keys and values to the recipient page
+  int half_size = GetSize() / 2;
+  int index = GetSize() % 2 == 0 ? half_size + 1 : half_size;
+  // Move keys
+  std::copy(key_array_ + index, key_array_ + GetSize(), recipient->key_array_ + 1);
+  std::copy(page_id_array_ + half_size, page_id_array_ + GetSize(), recipient->page_id_array_);
+  recipient->SetSize(half_size);
+  SetSize(half_size);
+}
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Insert(const KeyType &key, const ValueType &value, int old_index,
+                                            const KeyComparator &comparator) -> bool {
+  std::move(key_array_ + old_index + 1, key_array_ + GetSize(), key_array_ + old_index + 2);
+  std::move(page_id_array_ + old_index + 1, page_id_array_ + GetSize(), page_id_array_ + old_index + 2);
+  key_array_[old_index + 1] = key;
+  page_id_array_[old_index + 1] = value;
   IncreaseSize(1);
   return GetSize() <= GetMaxSize();
 }
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveKVForward() {
+  // 全部向前移动一位
+  std::move(key_array_ + 1, key_array_ + GetSize(), key_array_);
+  std::move(page_id_array_ + 1, page_id_array_ + GetSize(), page_id_array_);
+  IncreaseSize(-1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::EraseLastKV() {
+  // 删除最后一个key和value
+  key_array_[GetSize() - 1] = KeyType();
+  page_id_array_[GetSize() - 1] = ValueType();
+  IncreaseSize(-1);
+}
+// INDEX_TEMPLATE_ARGUMENTS
+// void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllValueForward() {
+//   // 全部向前移动一位
+//   std::move(page_id_array_ + 1, page_id_array_ + GetSize(), page_id_array_);
+//   // IncreaseSize(1);
+// }
+
+// INDEX_TEMPLATE_ARGUMENTS
+// void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllKeyForward() {
+//   // 全部向前移动一位
+//   std::move(key_array_ + 1, key_array_ + GetSize(), key_array_);
+//   // IncreaseSize(1);
+// }
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyAfter(const KeyType &key, const KeyComparator &comparator) {
   key_array_[GetSize()] = key;
   // IncreaseSize(1);
 }
-INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyBefore(const KeyType &key, const KeyComparator &comparator) {
-  std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + 1);
-  key_array_[1] = key;
-  // IncreaseSize(1);
-}
+// INDEX_TEMPLATE_ARGUMENTS
+// void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyBefore(const KeyType &key, const KeyComparator &comparator) {
+//   if (GetSize() == 0) {
+//     key_array_[0] = key;
+//     IncreaseSize(1);
+//     return;
+//   }
+//   std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + 1);
+//   key_array_[1] = key;
+//   // IncreaseSize(1);
+// }
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const KeyType &key, const ValueType &new_node_id) {
+  // if (GetSize() == 0) {
+  //   page_id_array_[0] = new_node_id;
+  //   key_array_[1] = key;
+  //   IncreaseSize(1);
+  //   return;
+  // }
+  // 因为internal page的大小最小是1，所以这里不需要判断
   key_array_[GetSize()] = key;
   page_id_array_[GetSize()] = new_node_id;
   IncreaseSize(1);
@@ -142,6 +185,12 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeAfter(const KeyType &key, const V
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeBefore(const KeyType &key, const ValueType &new_node_id) {
+  if (GetSize() == 0) {
+    key_array_[1] = key;
+    page_id_array_[0] = new_node_id;
+    IncreaseSize(1);
+    return;
+  }
   std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + 1);
   std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + 1);
   key_array_[1] = key;
@@ -150,11 +199,12 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertNodeBefore(const KeyType &key, const 
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeAfter(BPlusTreeInternalPage *node, const KeyComparator &comparator) {
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeAfterFrom(BPlusTreeInternalPage *node,
+                                                            const KeyComparator &comparator) {
   auto size = GetSize();
   auto node_size = node->GetSize();
   if (node_size == 1) {
-    if (comparator(node->KeyAt(1), node->KeyAt(2)) != 0) {  // don't need to insert the key
+    if (comparator(node->KeyAt(1), node->KeyAt(INTERNAL_PAGE_SLOT_CNT - 1)) != 0) {  // don't need to insert the key
       key_array_[size] = node->KeyAt(1);
     }
     page_id_array_[size] = node->ValueAt(0);
@@ -166,26 +216,27 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeAfter(BPlusTreeInternalPage *n
   IncreaseSize(node_size);
 }
 
-INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeBefore(BPlusTreeInternalPage *node, const KeyComparator &comparator) {
-  auto node_size = node->GetSize();
-  if (node_size == 1) {
-    if (comparator(node->KeyAt(1), node->KeyAt(2)) != 0) {
-      std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + node_size);
+// INDEX_TEMPLATE_ARGUMENTS
+// void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAllNodeBefore(BPlusTreeInternalPage *node, const KeyComparator
+// &comparator) {
+//   auto node_size = node->GetSize();
+//   if (node_size == 1) {
+//     if (comparator(node->KeyAt(1), node->KeyAt(INTERNAL_PAGE_SLOT_CNT - 1)) != 0) {
+//       std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + node_size);
 
-      key_array_[1] = node->KeyAt(node_size);
-    }
-    std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + node_size);
-    std::copy(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_);
-    IncreaseSize(node_size);
-    return;
-  }
-  std::move_backward(key_array_, key_array_ + GetSize(), key_array_ + GetSize() + node_size);
-  std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + node_size);
-  std::copy(node->key_array_ + 1, node->key_array_ + node_size, key_array_);
-  std::copy(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_);
-  IncreaseSize(node_size);
-}
+//       key_array_[1] = node->KeyAt(node_size);
+//     }
+//     std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + node_size);
+//     std::copy(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_);
+//     IncreaseSize(node_size);
+//     return;
+//   }
+//   std::move_backward(key_array_ + 1, key_array_ + GetSize(), key_array_ + GetSize() + node_size);
+//   std::move_backward(page_id_array_, page_id_array_ + GetSize(), page_id_array_ + GetSize() + node_size);
+//   std::copy(node->key_array_ + 1, node->key_array_ + node_size, key_array_ + 1);
+//   std::copy(node->page_id_array_, node->page_id_array_ + node_size, page_id_array_);
+//   IncreaseSize(node_size);
+// }
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEndOf(BPlusTreeInternalPage *recipient) {
@@ -205,18 +256,18 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveLastToFrontOf(BPlusTreeInternalPage *re
   recipient->InsertNodeBefore(key, value);
 }
 
-INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const KeyType &key, const ValueType &value) {
-  key_array_[1] = key;
-  page_id_array_[0] = value;
-  IncreaseSize(1);
-}
-INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const KeyType &key, const ValueType &value) {
-  key_array_[GetSize()] = key;
-  page_id_array_[GetSize()] = value;
-  IncreaseSize(1);
-}
+// INDEX_TEMPLATE_ARGUMENTS
+// void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyFirstFrom(const KeyType &key, const ValueType &value) {
+//   key_array_[1] = key;
+//   page_id_array_[0] = value;
+//   IncreaseSize(1);
+// }
+// INDEX_TEMPLATE_ARGUMENTS
+// void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const KeyType &key, const ValueType &value) {
+//   key_array_[GetSize()] = key;
+//   page_id_array_[GetSize()] = value;
+//   IncreaseSize(1);
+// }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() -> page_id_t {
@@ -229,10 +280,12 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() -> page_id_t {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(const KeyType &key, int index, const KeyComparator &comparator) -> bool {
-  auto key_index = index % 2 ? index : index + 1;
+  // TODO(LZY): 出现move的大小问题
+  BUSTUB_ASSERT(GetSize() > 0, "size is 0");
+  auto key_index = index != 0 ? index : index + 1;
   if (comparator(key_array_[key_index], key) == 0) {
     if (GetSize() == key_index + 1) {
-      key_array_[key_index] = key_array_[key_index + 1];
+      key_array_[key_index] = key_array_[INTERNAL_PAGE_SLOT_CNT - 1];
     } else {
       std::move(key_array_ + key_index + 1, key_array_ + GetSize(), key_array_ + key_index);
     }

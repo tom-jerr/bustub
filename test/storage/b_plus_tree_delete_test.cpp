@@ -118,6 +118,7 @@ TEST(BPlusTreeTests, SequentialEdgeMixTest) {  // NOLINT
       int64_t value = key & 0xFFFFFFFF;
       rid.Set(static_cast<int32_t>(key >> 32), value);
       index_key.SetFromInteger(key);
+      std::cout << "insert key: " << key << std::endl;
       tree.Insert(index_key, rid);
       std::string tree_str = tree.DrawBPlusTree();
       std::cout << tree_str << std::endl;

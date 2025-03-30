@@ -72,7 +72,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void InsertNodeAfter(const KeyType &key, const ValueType &value);
   void InsertNodeBefore(const KeyType &key, const ValueType &value);
 
-  void InsertAllNodeAfter(BPlusTreeLeafPage *node);
+  void InsertAllNodeAfterFrom(BPlusTreeLeafPage *node);
   void InsertAllNodeBefore(BPlusTreeLeafPage *node);
   void MoveFirstToEndOf(BPlusTreeLeafPage *split_node);
   void MoveLastToFrontOf(BPlusTreeLeafPage *split_node);

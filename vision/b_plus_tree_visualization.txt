@@ -1,0 +1,36 @@
+Delete key 11
+                                                                                                                                     (4,7,10,16)                                                                                                                                     
+                  (2,3)                                     (5,6)                                       (8,9)                                                     (12,13,14,15)                                                             (17,18,19)                            
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 16    (12)Next: 18    (13)Next: 19    (14)Next: 20    (15)Next: 22    (16)Next: 23    (17)Next: 24    (18)Next: 28    (19,20)Next: -1  
+
+Delete key 12
+                                                                                                                             (4,7,10,16)                                                                                                                             
+                  (2,3)                                     (5,6)                                       (8,9)                                               (13,14,15)                                                       (17,18,19)                            
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 18    (13)Next: 19    (14)Next: 20    (15)Next: 22    (16)Next: 23    (17)Next: 24    (18)Next: 28    (19,20)Next: -1  
+
+Delete key 13
+                                                                                                                     (4,7,10,16)                                                                                                                     
+                  (2,3)                                     (5,6)                                       (8,9)                                        (14,15)                                                (17,18,19)                            
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 19    (14)Next: 20    (15)Next: 22    (16)Next: 23    (17)Next: 24    (18)Next: 28    (19,20)Next: -1  
+
+Delete key 14
+                                                                                                              (4,7,16)                                                                                                              
+                  (2,3)                                     (5,6)                                                    (8,9,10,15)                                                             (17,18,19)                            
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 20    (15)Next: 22    (16)Next: 23    (17)Next: 24    (18)Next: 28    (19,20)Next: -1  
+
+Delete key 15
+                                                                                                      (4,7,16)                                                                                                      
+                  (2,3)                                     (5,6)                                             (8,9,10)                                                      (17,18,19)                            
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 22    (16)Next: 23    (17)Next: 24    (18)Next: 28    (19,20)Next: -1  
+
+Delete key 16
+                                                                                              (4,7,16)                                                                                              
+                  (2,3)                                     (5,6)                                             (8,9,10)                                                (18,19)                      
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 22    (17)Next: 24    (18)Next: 28    (19,20)Next: -1  
+
+Delete key 17
+                                                                                       (4,7,0)                                                                                       
+                  (2,3)                                     (5,6)                                                     (8,9,10,16)                                         ()       
+  (1)Next: 2    (2)Next: 4    (3)Next: 5    (4)Next: 6    (5)Next: 7    (6)Next: 10    (7)Next: 11    (8)Next: 12    (9)Next: 14    (10)Next: 22    (19,20)Next: -1    (18)Next: 28  
+
+Delete key 18

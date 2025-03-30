@@ -80,24 +80,64 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    */
   auto ValueAt(int index) const -> ValueType;
   void SetValueAt(int index, const ValueType &value);
+  /**
+   * @brief 插入到对应的位置
+   *
+   * @param key
+   * @param value
+   * @param comparator
+   * @return true
+   * @return false
+   */
+  auto Insert(const KeyType &key, const ValueType &value, int old_index, const KeyComparator &comparator) -> bool;
+
+  void MoveHalfValueTo(BPlusTreeInternalPage *recipient);
+  /**
+   * @brief 二分查找指定的key
+   *
+   * @param key
+   * @param comparator
+   * @param leftmost
+   * @param rightmost
+   * @return ValueType
+   */
   auto Lookup(const KeyType &key, const KeyComparator &comparator, int leftmost, int rightmost) const -> ValueType;
-
+  /**
+   * @brief 对新的root进行初始化
+   *
+   * @param old_node_id
+   * @param new_key
+   * @param new_node_id
+   */
   void PopulateNewRoot(const ValueType &old_node_id, const KeyType &new_key, const ValueType &new_node_id);
+  /**
+   * @brief helper function
+   *
+   */
   void InsertKeyAfter(const KeyType &key, const KeyComparator &comparator);
-  void InsertKeyBefore(const KeyType &key, const KeyComparator &comparator);
+  // void InsertKeyBefore(const KeyType &key, const KeyComparator &comparator);
   void InsertNodeAfter(const KeyType &key, const ValueType &new_node_id);
-  void InsertNodeBefore(const KeyType &key, const ValueType &new_node_id);
-  void InsertAllNodeAfter(BPlusTreeInternalPage *node, const KeyComparator &comparator);
-  void InsertAllNodeBefore(BPlusTreeInternalPage *node, const KeyComparator &comparator);
-  void MoveFirstToEndOf(BPlusTreeInternalPage *recipient);
+  // void MoveAllValueForward();
+  // void MoveAllKeyForward();
+  /**
+   * @brief redistribute need
+   *
+   */
   void MoveLastToFrontOf(BPlusTreeInternalPage *recipient);
-  void CopyFirstFrom(const KeyType &key, const ValueType &value);
-  void CopyLastFrom(const KeyType &key, const ValueType &value);
-  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
+  void MoveFirstToEndOf(BPlusTreeInternalPage *recipient);
+  void MoveKVForward();
+  void EraseLastKV();
+  void InsertNodeBefore(const KeyType &key, const ValueType &new_node_id);
 
+  /**
+   * @brief coalesce need
+   *
+   */
+  void InsertAllNodeAfterFrom(BPlusTreeInternalPage *node, const KeyComparator &comparator);
+  // void InsertAllNodeBefore(BPlusTreeInternalPage *node, const KeyComparator &comparator);
   auto RemoveAndReturnOnlyChild() -> page_id_t;
   auto Remove(const KeyType &key, int index, const KeyComparator &comparator) -> bool;
-  // void RemoveKey(const KeyType &key, const KeyComparator &comparator);
+
   /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
