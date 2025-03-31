@@ -71,6 +71,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> bool;
   void InsertNodeAfter(const KeyType &key, const ValueType &value);
   void InsertNodeBefore(const KeyType &key, const ValueType &value);
+  void MoveHalfTo(BPlusTreeLeafPage *recipient);
 
   void InsertAllNodeAfterFrom(BPlusTreeLeafPage *node);
   void InsertAllNodeBefore(BPlusTreeLeafPage *node);

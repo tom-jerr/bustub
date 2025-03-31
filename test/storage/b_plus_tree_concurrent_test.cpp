@@ -375,7 +375,7 @@ void MixTest1Call() {
     tasks.emplace_back(insert_task);
     tasks.emplace_back(delete_task);
     std::vector<std::thread> threads;
-    size_t num_threads = 2;
+    size_t num_threads = 10;
     for (size_t i = 0; i < num_threads; i++) {
       threads.emplace_back(tasks[i % tasks.size()], i);
     }
@@ -466,27 +466,27 @@ void MixTest2Call() {
   }
 }
 
-// TEST(BPlusTreeConcurrentTest, InsertTest1) {  // NOLINT
-//   InsertTest1Call();
-// }
+TEST(BPlusTreeConcurrentTest, InsertTest1) {  // NOLINT
+  InsertTest1Call();
+}
 
-// TEST(BPlusTreeConcurrentTest, InsertTest2) {  // NOLINT
-//   InsertTest2Call();
-// }
+TEST(BPlusTreeConcurrentTest, InsertTest2) {  // NOLINT
+  InsertTest2Call();
+}
 
-// TEST(BPlusTreeConcurrentTest, DeleteTest1) {  // NOLINT
-//   DeleteTest1Call();
-// }
+TEST(BPlusTreeConcurrentTest, DeleteTest1) {  // NOLINT
+  DeleteTest1Call();
+}
 
-// TEST(BPlusTreeConcurrentTest, DeleteTest2) {  // NOLINT
-//   DeleteTest2Call();
-// }
+TEST(BPlusTreeConcurrentTest, DeleteTest2) {  // NOLINT
+  DeleteTest2Call();
+}
 
 TEST(BPlusTreeConcurrentTest, MixTest1) {  // NOLINT
   MixTest1Call();
 }
 
-// TEST(BPlusTreeConcurrentTest, MixTest2) {  // NOLINT
-//   MixTest2Call();
-// }
+TEST(BPlusTreeConcurrentTest, MixTest2) {  // NOLINT
+  MixTest2Call();
+}
 }  // namespace bustub

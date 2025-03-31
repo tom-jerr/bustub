@@ -84,7 +84,7 @@ class Context {
       write_set_.pop_front();
     }
   }
-  void print() {
+  void Print() {
     std::cout << "write set: ";
     for (auto &w : write_set_) {
       std::cout << w.GetPageId() << " ";
@@ -108,6 +108,10 @@ class BPlusTree {
   // TODO(LZY): 源文件中需要as成叶子节点或者内部节点使用这两个别名！！！
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
+  struct SplitRet {
+    page_id_t new_page_id_;
+    KeyType new_key_;
+  };
 
  public:
   explicit BPlusTree(std::string name, page_id_t header_page_id, BufferPoolManager *buffer_pool_manager,
@@ -132,11 +136,11 @@ class BPlusTree {
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
   auto StartNewTree(Context *ctx, const KeyType &key, const ValueType &value) -> bool;
-  void InsertIntoParent(Context *context, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id,
+  void InsertIntoParent(Context *ctx, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id,
                         int recursive_level);
 
-  auto SplitLeaf(Context *ctx) -> KeyType;
-  auto SplitInternal(Context *ctx, int recursive_level) -> KeyType;
+  auto SplitLeaf(Context *ctx) -> SplitRet;
+  auto SplitInternal(Context *ctx, int recursive_level) -> SplitRet;
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
 
@@ -223,7 +227,7 @@ class BPlusTree {
   int leaf_max_size_;
   int internal_max_size_;
   page_id_t header_page_id_;
-
+  std::mutex context_insert_mutex_;
   // std::mutex log_mutex_;
 };
 

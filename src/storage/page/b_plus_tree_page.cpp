@@ -50,6 +50,7 @@ void BPlusTreePage::SetMaxSize(int size) {
  * Generally, min page size == max page size / 2
  * But whether you will take ceil() or floor() depends on your implementation
  */
-auto BPlusTreePage::GetMinSize() const -> int { return std::ceil(GetMaxSize() / 2.0); }
+// 如果是ceil的话，需要先分裂再插入；使用floor的话，先插入再分裂，我们的实现采用后者
+auto BPlusTreePage::GetMinSize() const -> int { return std::floor(GetMaxSize() / 2.0); }
 
 }  // namespace bustub

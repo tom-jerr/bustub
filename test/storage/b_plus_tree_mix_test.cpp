@@ -334,7 +334,7 @@ TEST(BPlusTreeTests, DISABLED_CrossMixTest) {
   }
   delete bpm;
 }
-TEST(BPlusTreeTests, MultiThreadMixTest) {
+TEST(BPlusTreeTests, DISABLED_MultiThreadMixTest) {
   // 创建一个存放b+tree可视化的文件
   std::string filename = "../../vision/b_plus_tree_visualization.txt";
   std::ofstream out_file(filename);
@@ -447,6 +447,147 @@ TEST(BPlusTreeTests, MultiThreadMixTest) {
     bool is_present = tree.GetValue(index_key, &rids);
     ASSERT_EQ(is_present, false);
   }
+  // 验证插入的key是否存在
+  // for (auto key : keys) {
+  //   if (key > 20) {
+  //     rids.clear();
+  //     GenericKey<8> index_key;
+  //     index_key.SetFromInteger(key);
+  //     std::cout << "Check old insert key " << key << std::endl;
+  //     bool is_present = tree.GetValue(index_key, &rids);
+  //     ASSERT_EQ(is_present, true);
+  //     ASSERT_EQ(rids.size(), 1);
+  //     int64_t value = key & 0xFFFFFFFF;
+  //     ASSERT_EQ(rids[0].GetPageId(), 0);
+  //     ASSERT_EQ(rids[0].GetSlotNum(), value);
+  //   }
+  // }
+  delete bpm;
+}
+TEST(BPlusTreeTests, MaxSizeMixTest) {
+  // 创建一个存放b+tree可视化的文件
+  std::string filename = "../../vision/b_plus_tree_visualization.txt";
+  std::ofstream out_file(filename);
+  // create KeyComparator and index schema
+  auto key_schema = ParseCreateStatement("a bigint");
+  GenericComparator<8> comparator(key_schema.get());
+
+  auto disk_manager = std::make_unique<DiskManagerUnlimitedMemory>();
+  auto *bpm = new BufferPoolManager(50, disk_manager.get());
+  // allocate header_page
+  page_id_t page_id = bpm->NewPage();
+  // create b+ tree
+  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator);
+
+  // 插入40个key，然后再删除20个key，再插入20个key
+  std::vector<int64_t> dynamic_keys;
+  std::vector<int64_t> preserved_keys;
+  for (int i = 0; i < 1000; i++) {
+    if (i % 5 == 0) {
+      preserved_keys.push_back(i);
+    } else {
+      dynamic_keys.push_back(i);
+    }
+  }
+
+  for (auto key : preserved_keys) {
+    int64_t value = key & 0xFFFFFFFF;
+    RID rid;
+    rid.Set(static_cast<int32_t>(key >> 32), value);
+    GenericKey<8> index_key;
+    index_key.SetFromInteger(key);
+    tree.Insert(index_key, rid);
+  }
+  auto tree_string = tree.DrawBPlusTree();
+  std::cout << tree_string << std::endl;
+  out_file << tree_string << std::endl;
+
+  // insert 和 delete 交替进行
+  for (size_t i = 1; i <= dynamic_keys.size(); ++i) {
+    if (i % 2 == 1) {
+      // 插入一个key
+      int64_t key = dynamic_keys[i - 1];
+      int64_t value = key & 0xFFFFFFFF;
+      RID rid;
+      rid.Set(static_cast<int32_t>(key >> 32), value);
+      GenericKey<8> index_key;
+      index_key.SetFromInteger(key);
+      std::cout << "Insert key " << key << std::endl;
+      out_file << "Insert key " << key << std::endl;
+      tree.Insert(index_key, rid);
+      // 打印树的结构
+      auto tree_string = tree.DrawBPlusTree();
+      // std::cout << tree_string << std::endl;
+      out_file << tree_string << std::endl;
+      // 删除一个key
+      int64_t delete_key = dynamic_keys[i - 1];
+      GenericKey<8> delete_index_key;
+      delete_index_key.SetFromInteger(delete_key);
+      std::cout << "Delete key " << delete_key << std::endl;
+      out_file << "Delete key " << delete_key << std::endl;
+      tree.Remove(delete_index_key);
+      // 打印树的结构
+      tree_string = tree.DrawBPlusTree();
+      // std::cout << tree_string << std::endl;
+      out_file << tree_string << std::endl;
+      out_file.flush();
+    } else {
+      // 删除一个key
+      int64_t key = dynamic_keys[i - 1];
+      GenericKey<8> index_key;
+      index_key.SetFromInteger(key);
+      std::cout << "Delete key " << key << std::endl;
+      out_file << "Delete key " << key << std::endl;
+      tree.Remove(index_key);
+      // 打印树的结构
+      auto tree_string = tree.DrawBPlusTree();
+      // std::cout << tree_string << std::endl;
+      out_file << tree_string << std::endl;
+      // 插入一个新key
+      int64_t new_key = dynamic_keys[i - 1];
+      int64_t value = dynamic_keys[i - 1] & 0xFFFFFFFF;
+      RID rid;
+      rid.Set(static_cast<int32_t>(new_key >> 32), value);
+      GenericKey<8> new_index_key;
+      new_index_key.SetFromInteger(value);
+      std::cout << "Insert key " << value << std::endl;
+      out_file << "Insert key " << value << std::endl;
+      tree.Insert(new_index_key, rid);
+      // 打印树的结构
+      tree_string = tree.DrawBPlusTree();
+      // std::cout << tree_string << std::endl;
+      out_file << tree_string << std::endl;
+      out_file.flush();
+    }
+  }
+
+  // 打印树的结构
+  tree_string = tree.DrawBPlusTree();
+  std::cout << tree_string << std::endl;
+
+  // 验证插入的key是否存在
+  std::vector<RID> rids;
+  for (auto key : preserved_keys) {
+    rids.clear();
+    GenericKey<8> index_key;
+    index_key.SetFromInteger(key);
+    std::cout << "Check new insert key " << key << std::endl;
+    bool is_present = tree.GetValue(index_key, &rids);
+    ASSERT_EQ(is_present, true);
+    ASSERT_EQ(rids.size(), 1);
+    int64_t value = key & 0xFFFFFFFF;
+    ASSERT_EQ(rids[0].GetPageId(), 0);
+    ASSERT_EQ(rids[0].GetSlotNum(), value);
+  }
+  // // 验证删除的key是否不存在
+  // for (auto key : remove_keys) {
+  //   rids.clear();
+  //   GenericKey<8> index_key;
+  //   index_key.SetFromInteger(key);
+  //   std::cout << "Check delete key " << key << std::endl;
+  //   bool is_present = tree.GetValue(index_key, &rids);
+  //   ASSERT_EQ(is_present, false);
+  // }
   // 验证插入的key是否存在
   // for (auto key : keys) {
   //   if (key > 20) {

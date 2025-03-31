@@ -68,10 +68,10 @@ INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyComparator &comparator, int leftmost,
                                             int rightmost) const -> ValueType {
   BUSTUB_ASSERT(GetSize() > 0, "size should be greater than 0");
-  if (leftmost) {
+  if (leftmost != 0) {
     return page_id_array_[0];
   }
-  if (rightmost) {
+  if (rightmost != 0) {
     return page_id_array_[GetSize() - 1];
   }
   int l = 1;
@@ -85,10 +85,10 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Lookup(const KeyType &key, const KeyCompara
     }
   }
   if (comparator(key_array_[l], key) > 0) {
-    LOG_DEBUG("key: %ld, pid: %d", key.ToString(), page_id_array_[l - 1]);
+    // LOG_DEBUG("key: %ld, pid: %d", key.ToString(), page_id_array_[l - 1]);
     return page_id_array_[l - 1];  // 当前节点
   }
-  LOG_DEBUG("key: %ld, pid: %d", key.ToString(), page_id_array_[l]);
+  // LOG_DEBUG("key: %ld, pid: %d", key.ToString(), page_id_array_[l]);
   return page_id_array_[l];
 }
 

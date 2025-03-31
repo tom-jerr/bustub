@@ -89,6 +89,16 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertNodeBefore(const KeyType &key, const Valu
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(BPlusTreeLeafPage *recipient) {
+  auto half_size = GetSize() / 2;
+  auto size = GetSize();
+  std::copy(key_array_ + half_size, key_array_ + size, recipient->key_array_);
+  std::copy(rid_array_ + half_size, rid_array_ + size, recipient->rid_array_);
+  SetSize(half_size);
+  recipient->IncreaseSize(size - half_size);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertAllNodeAfterFrom(BPlusTreeLeafPage *node) {
   auto size = GetSize();
   auto node_size = node->GetSize();
