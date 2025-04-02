@@ -72,6 +72,8 @@ struct DiskRequest {
  * thread is created in the DiskScheduler constructor and joined in its destructor.
  */
 class DiskScheduler {
+  enum { THREAD_NUM = 16 };
+
  public:
   explicit DiskScheduler(DiskManager *disk_manager);
   ~DiskScheduler();
@@ -133,8 +135,8 @@ class DiskScheduler {
   // TODO(LZY):考虑使用moodycamel::BlockingReaderWriterQueue以及读写请求分离
   // moodycamel::ReaderWriterQueue<std::optional<DiskRequest>> request_queue_;
   /** The background thread responsible for issuing scheduled requests to the disk manager. */
-  std::optional<std::thread> background_thread_;
-  // std::array<std::optional<std::thread>, THREAD_NUM> thread_pool_;  // 使用定长的线程池
+  // std::optional<std::thread> background_thread_;
+  std::array<std::optional<std::thread>, THREAD_NUM> thread_pool_;  // 使用定长的线程池
   [[maybe_unused]] std::array<page_id_t, 1> thread_page_;
   [[maybe_unused]] std::array<std::shared_mutex, 1> thread_mutex_;
 };

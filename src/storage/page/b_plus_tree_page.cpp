@@ -51,6 +51,8 @@ void BPlusTreePage::SetMaxSize(int size) {
  * But whether you will take ceil() or floor() depends on your implementation
  */
 // 如果是ceil的话，需要先分裂再插入；使用floor的话，先插入再分裂，我们的实现采用后者
-auto BPlusTreePage::GetMinSize() const -> int { return std::floor(GetMaxSize() / 2.0); }
+auto BPlusTreePage::GetMinSize() const -> int {
+  return IsLeafPage() ? std::floor(GetMaxSize() / 2.0) : std::ceil(GetMaxSize() / 2.0);
+}
 
 }  // namespace bustub

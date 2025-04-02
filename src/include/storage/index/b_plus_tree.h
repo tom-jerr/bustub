@@ -56,34 +56,40 @@ class Context {
   // You may want to use this when getting value, but not necessary.
   std::deque<ReadPageGuard> read_set_;
 
-  // ~Context() {
-  //   if (header_page_.has_value()) {
-  //     header_page_ = std::nullopt;
-  //   }
-  //   for (auto &w : write_set_) {
-  //     w.Drop();
-  //   }
-  //   for (auto &r : read_set_) {
-  //     r.Drop();
-  //   }
-  // }
-
   auto IsRootPage(page_id_t page_id) -> bool {
     // std::lock_guard lock(mutex_);
     return page_id == root_page_id_;
   }
 
   void ReleaseWriteLatchExceptLast() {
+    // root_page_id_ = INVALID_PAGE_ID;
     if (header_page_.has_value()) {
-      header_page_.reset();
+      header_page_ = std::nullopt;
     }
     if (write_set_.empty() || write_set_.size() == 1) {
       return;
     }
     for (size_t i = 0; i < write_set_.size() - 1; i++) {
+      // write_set_.front().Drop();
       write_set_.pop_front();
     }
   }
+
+  void ReleaseAllLatch() {
+    // std::lock_guard lock(mutex_);
+    if (header_page_.has_value()) {
+      header_page_ = std::nullopt;
+    }
+    for (auto &w : write_set_) {
+      w.Drop();
+    }
+    write_set_.clear();
+    for (auto &r : read_set_) {
+      r.Drop();
+    }
+    read_set_.clear();
+  }
+
   void Print() {
     std::cout << "write set: ";
     for (auto &w : write_set_) {
@@ -105,7 +111,7 @@ enum class Operation : int8_t {
 // Main class providing the API for the Interactive B+ Tree.
 INDEX_TEMPLATE_ARGUMENTS
 class BPlusTree {
-  // TODO(LZY): 源文件中需要as成叶子节点或者内部节点使用这两个别名！！！
+  //  源文件中需要as成叶子节点或者内部节点使用这两个别名！！！
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
   struct SplitRet {
@@ -120,6 +126,12 @@ class BPlusTree {
 
   auto UpdateRoot(Context *ctx, page_id_t root_page_id) -> bool;
   // leftmost 和 rightmost是为了实现Begin()和end()
+  auto OptiFindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator, int leftmost,
+                        int rightmost) -> page_id_t;
+  auto OptiFindUpdateLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
+                              int rightmost) -> page_id_t;
+  // auto OptiFindRemoveLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
+  //                             int rightmost) -> page_id_t;
   auto FindLeafPage(Context *ctx, Operation op, const KeyType &key, const KeyComparator &comparator, int leftmost,
                     int rightmost) -> page_id_t;
   auto FindSearchLeafPage(Context *ctx, const KeyType &key, const KeyComparator &comparator, int leftmost,
@@ -135,6 +147,7 @@ class BPlusTree {
 
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
+  auto OptiInsert(Context *ctx, const KeyType &key, const ValueType &value) -> bool;
   auto StartNewTree(Context *ctx, const KeyType &key, const ValueType &value) -> bool;
   void InsertIntoParent(Context *ctx, page_id_t old_node_id, const KeyType &key, page_id_t new_node_id,
                         int recursive_level);
@@ -143,8 +156,8 @@ class BPlusTree {
   auto SplitInternal(Context *ctx, int recursive_level) -> SplitRet;
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
+  void OptiRemove(Context *ctx, const KeyType &key);
 
-  // TODO(LZY): delete需要全部重写
   auto DeleteEntry(Context *ctx, const KeyType &key, int delete_index, page_id_t current_page_id, int recursive_level)
       -> bool;
 

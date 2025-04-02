@@ -20,7 +20,6 @@
 #include "common/macros.h"
 #include "storage/page/b_plus_tree_internal_page.h"
 #include "storage/page/b_plus_tree_page.h"
-// TODO(LZY): 这里需要大改，k个key对应k+1个value，所以需要修改key_array_和page_id_array_的大小
 namespace bustub {
 /*****************************************************************************
  * HELPER METHODS AND UTILITIES
@@ -280,7 +279,6 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAndReturnOnlyChild() -> page_id_t {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(const KeyType &key, int index, const KeyComparator &comparator) -> bool {
-  // TODO(LZY): 出现move的大小问题
   BUSTUB_ASSERT(GetSize() > 0, "size is 0");
   auto key_index = index != 0 ? index : index + 1;
   if (comparator(key_array_[key_index], key) == 0) {

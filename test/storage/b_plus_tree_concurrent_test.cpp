@@ -55,7 +55,8 @@ void InsertHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
     int64_t value = key & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
-    // out_file << "Insert key " << key << std::endl;
+    out_file << "Insert key " << key << std::endl;
+    // std::cout << "Insert key " << key << std::endl;
     tree->Insert(index_key, rid);
     // auto tree_string = tree->DrawBPlusTree();
     // out_file << tree_string << std::endl;
@@ -76,6 +77,7 @@ void InsertHelperSplit(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree
       int64_t value = key & 0xFFFFFFFF;
       rid.Set(static_cast<int32_t>(key >> 32), value);
       index_key.SetFromInteger(key);
+
       tree->Insert(index_key, rid);
       // LOG_DEBUG("Thread id %ld Insert key %ld", thread_itr, key);
     }
@@ -89,7 +91,8 @@ void DeleteHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
 
   for (auto key : remove_keys) {
     index_key.SetFromInteger(key);
-    // out_file << "Delete key " << key << std::endl;
+    // std::cout << "Delete key " << key << std::endl;
+    out_file << "Delete key " << key << std::endl;
     tree->Remove(index_key);
     // auto tree_string = tree->DrawBPlusTree();
     // out_file << tree_string << std::endl;

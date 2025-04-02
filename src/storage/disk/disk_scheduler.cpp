@@ -26,23 +26,25 @@ DiskScheduler::DiskScheduler(DiskManager *disk_manager) : disk_manager_(disk_man
   //     " "throw exception line in `disk_scheduler.cpp`.");
 
   // Spawn the background thread
-  background_thread_.emplace([&] { StartWorkerThread(); });
-  // for (size_t i = 0; i < THREAD_NUM; ++i) {
-  //   thread_pool_[i] = std::thread([&] { StartWorkerThread(i); });
-  // }
+  // background_thread_.emplace([&] { StartWorkerThread(); });
+  for (size_t i = 0; i < THREAD_NUM; ++i) {
+    thread_pool_[i] = std::thread([&] { StartWorkerThread(); });
+  }
 }
 
 DiskScheduler::~DiskScheduler() {
   // Put a `std::nullopt` in the queue to signal to exit the loop
-  request_queue_.Put(std::nullopt);
-  if (background_thread_.has_value()) {
-    background_thread_->join();
+  for (size_t i = 0; i < 2 * THREAD_NUM; ++i) {
+    request_queue_.Put(std::nullopt);
   }
-  // for (size_t i = 0; i < THREAD_NUM; ++i) {
-  //   if (thread_pool_[i].has_value()) {
-  //     thread_pool_[i]->join();
-  //   }
+  // if (background_thread_.has_value()) {
+  //   background_thread_->join();
   // }
+  for (size_t i = 0; i < THREAD_NUM; ++i) {
+    if (thread_pool_[i].has_value()) {
+      thread_pool_[i]->join();
+    }
+  }
 }
 
 /**
