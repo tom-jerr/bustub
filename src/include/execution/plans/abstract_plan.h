@@ -77,6 +77,7 @@ class AbstractPlanNode {
 
   /** @return the schema for the output of this plan node */
   auto OutputSchema() const -> const Schema & { return *output_schema_; }
+  auto OutputSchemaPtr() const -> const SchemaRef & { return output_schema_; }
 
   /** @return the child of this plan node at index child_idx */
   auto GetChildAt(uint32_t child_idx) const -> AbstractPlanNodeRef { return children_[child_idx]; }

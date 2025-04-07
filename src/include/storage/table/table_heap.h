@@ -128,6 +128,8 @@ class TableHeap {
 
   auto GetTupleMetaWithLockAcquired(RID rid, const TablePage *page) -> TupleMeta;
 
+  auto GetTupleNum() const -> uint32_t;
+
  private:
   /** Used for binder tests */
   explicit TableHeap(bool create_table_heap = false);

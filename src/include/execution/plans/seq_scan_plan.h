@@ -47,6 +47,8 @@ class SeqScanPlanNode : public AbstractPlanNode {
   /** @return The identifier of the table that should be scanned */
   auto GetTableOid() const -> table_oid_t { return table_oid_; }
 
+  auto SetPredicate(AbstractExpressionRef predicate) -> void { filter_predicate_ = std::move(predicate); }
+
   static auto InferScanSchema(const BoundBaseTableRef &table_ref) -> Schema;
 
   BUSTUB_PLAN_NODE_CLONE_WITH_CHILDREN(SeqScanPlanNode);

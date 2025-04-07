@@ -153,4 +153,18 @@ auto TableHeap::GetTupleMetaWithLockAcquired(RID rid, const TablePage *page) -> 
   return page->GetTupleMeta(rid);
 }
 
+auto TableHeap::GetTupleNum() const -> uint32_t {
+  // std::unique_lock guard(latch_);
+  auto begin_page_id = first_page_id_;
+  auto num_tuples = 0;
+  while (begin_page_id <= last_page_id_) {
+    auto page_guard = bpm_->ReadPage(begin_page_id);
+    auto page = const_cast<TablePage *>(page_guard.As<TablePage>());
+    num_tuples += page->GetNumTuples();
+    begin_page_id = page->GetNextPageId();
+  }
+
+  return num_tuples;
+}
+
 }  // namespace bustub
