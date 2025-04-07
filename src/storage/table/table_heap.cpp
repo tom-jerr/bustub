@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <memory>
 #include <mutex>  // NOLINT
 #include <utility>
 
@@ -40,6 +41,23 @@ TableHeap::TableHeap(BufferPoolManager *bpm) : bpm_(bpm) {
 }
 
 TableHeap::TableHeap(bool create_table_heap) : bpm_(nullptr) {}
+// auto TableHeap::DeleteTuple(RID rid) -> bool {
+//   std::unique_lock<std::mutex> guard(latch_);
+//   auto page_guard = bpm_->WritePage(rid.GetPageId());
+//   auto page = page_guard.AsMut<TablePage>();
+//   if (page == nullptr) {
+//     LOG_ERROR("Failed to acquire page for delete tuple, rid: %s", rid.ToString().c_str());
+//     return false;  // page not found
+//   }
+//   auto [old_meta, old_tup] = page->GetTuple(rid);
+//   if (old_meta.is_deleted_) {
+//     LOG_ERROR("Trying to delete an already deleted tuple, rid: %s", rid.ToString().c_str());
+//     return false;  // already deleted
+//   }
+//   // Mark the tuple as deleted
+//   old_meta.is_deleted_ = true;
+//   return true;
+// }
 
 auto TableHeap::InsertTuple(const TupleMeta &meta, const Tuple &tuple, LockManager *lock_mgr, Transaction *txn,
                             table_oid_t oid) -> std::optional<RID> {

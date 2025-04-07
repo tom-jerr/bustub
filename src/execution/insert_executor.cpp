@@ -49,9 +49,8 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   if (is_return_) {
     return false;
   }
-  auto table_oid = plan_->GetTableOid();
-  auto catalog = exec_ctx_->GetCatalog();
-  auto table_info = catalog->GetTable(table_oid);
+
+  auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
   if (table_info == nullptr) {
     throw ExecutionException("InsertExecutor: table not found.");
   }
@@ -59,54 +58,33 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   if (table_heap == nullptr) {
     throw ExecutionException("InsertExecutor: table heap is null.");
   }
-  // Insert tuples from the child executor into the table heap
+  auto transaction = exec_ctx_->GetTransaction();
+  auto index_vector = exec_ctx_->GetCatalog()->GetTableIndexes(table_info->name_);
   int num_inserted = 0;
-  auto output_schema = GetOutputSchemaPtr();
-  std::vector<Value> values(1);
-  while (true) {
-    Tuple child_tuple;
-    RID child_rid;
-    auto next = child_executor_->Next(&child_tuple, &child_rid);
-    if (!next) {
-      // No more tuples to insert
-      LOG_DEBUG("InsertExecutor: no more tuples to insert.");
 
-      break;
+  // Insert tuples from the child executor into the table heap
+  Tuple child_tuple;
+  RID child_rid;
+  while (child_executor_->Next(&child_tuple, &child_rid)) {
+    auto ret = table_heap->InsertTuple(TupleMeta{transaction->GetTransactionTempTs(), false}, child_tuple,
+                                       exec_ctx_->GetLockManager(), transaction);
+    if (!ret.has_value()) {
+      LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
+      return false;
     }
-    auto tuple_meta = TupleMeta{INVALID_TS, false};
-    auto ret = table_heap->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
-                                       exec_ctx_->GetTransaction(), table_oid);
-    if (ret == std::nullopt) {
-      LOG_DEBUG("InsertExecutor: fail to insert this one.");
-      values.clear();
-      values.emplace_back(ValueFactory::GetIntegerValue(num_inserted));
-      *tuple = Tuple{values, output_schema.get()};
-      is_return_ = true;
-      return true;
+
+    for (auto &index : index_vector) {
+      index->index_->InsertEntry(
+          child_tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs()), ret.value(),
+          transaction);
     }
-    // update index
-    auto table_name = catalog->GetTable(table_oid)->name_;
-    auto table_schema = catalog->GetTable(table_oid)->schema_;
-    auto indexs = catalog->GetTableIndexes(table_name);
-    if (!indexs.empty()) {
-      for (auto &index_info : indexs) {
-        // auto index_oid = index_info->index_oid_;
-        auto index_heap = index_info->index_.get();
-        auto key_attrs = index_heap->GetKeyAttrs();
-        auto key_schema = index_info->key_schema_;
-        auto key_tuple = child_tuple.KeyFromTuple(table_schema, key_schema, key_attrs);
-        auto status = index_heap->InsertEntry(key_tuple, *ret, exec_ctx_->GetTransaction());
-        if (!status) {
-          LOG_DEBUG("InsertExecutor: fail to insert into index.");
-          return false;
-        }
-      }
-    }
+
     num_inserted++;
   }
-  values.clear();
+  std::vector<Value> values{};
+  values.reserve(GetOutputSchema().GetColumnCount());
   values.emplace_back(ValueFactory::GetIntegerValue(num_inserted));
-  *tuple = Tuple{values, output_schema.get()};
+  *tuple = Tuple{values, &GetOutputSchema()};
   is_return_ = true;
   return true;
 }

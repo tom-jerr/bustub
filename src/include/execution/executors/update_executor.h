@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "catalog/schema.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/update_plan.h"
@@ -66,5 +67,7 @@ class UpdateExecutor : public AbstractExecutor {
 
   /** The child executor to obtain value from */
   std::unique_ptr<AbstractExecutor> child_executor_;
+  /** whether update is returned */
+  bool is_return_{false};
 };
 }  // namespace bustub

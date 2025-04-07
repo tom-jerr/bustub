@@ -63,7 +63,7 @@ class TableHeap {
    * @param rid the rid of the inserted tuple
    */
   void UpdateTupleMeta(const TupleMeta &meta, RID rid);
-
+  // auto DeleteTuple(RID rid) -> bool;
   /**
    * Read a tuple from the table.
    * @param rid rid of the tuple to read
