@@ -30,21 +30,22 @@
 
 namespace bustub {
 
-enum class StringExpressionType { Lower, Upper };
+enum class StringExecExpressionType { Lower, Upper };
 
 /**
  * StringExpression represents two expressions being computed.
  */
 class StringExpression : public AbstractExpression {
  public:
-  StringExpression(AbstractExpressionRef arg, StringExpressionType expr_type)
-      : AbstractExpression({std::move(arg)}, Column{"<val>", TypeId::VARCHAR, 256 /* hardcode max length */}),
+  StringExpression(AbstractExpressionRef arg, StringExecExpressionType expr_type)
+      : AbstractExpression({std::move(arg)}, Column{"<val>", TypeId::VARCHAR, 256 /* hardcode max length */},
+                           ExecExpressionType::String),
         expr_type_{expr_type} {
     if (GetChildAt(0)->GetReturnType().GetType() != TypeId::VARCHAR) {
       BUSTUB_ENSURE(GetChildAt(0)->GetReturnType().GetType() == TypeId::VARCHAR, "unexpected arg");
     }
   }
-
+  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::String; }
   auto Compute(const std::string &val) const -> std::string {
     // TODO(student): implement upper / lower.
     return {};
@@ -68,22 +69,22 @@ class StringExpression : public AbstractExpression {
 
   BUSTUB_EXPR_CLONE_WITH_CHILDREN(StringExpression);
 
-  StringExpressionType expr_type_;
+  StringExecExpressionType expr_type_;
 
  private:
 };
 }  // namespace bustub
 
 template <>
-struct fmt::formatter<bustub::StringExpressionType> : formatter<string_view> {
+struct fmt::formatter<bustub::StringExecExpressionType> : formatter<string_view> {
   template <typename FormatContext>
-  auto format(bustub::StringExpressionType c, FormatContext &ctx) const {
+  auto format(bustub::StringExecExpressionType c, FormatContext &ctx) const {
     string_view name;
     switch (c) {
-      case bustub::StringExpressionType::Upper:
+      case bustub::StringExecExpressionType::Upper:
         name = "upper";
         break;
-      case bustub::StringExpressionType::Lower:
+      case bustub::StringExecExpressionType::Lower:
         name = "lower";
         break;
       default:

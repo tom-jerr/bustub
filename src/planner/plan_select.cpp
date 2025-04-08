@@ -55,9 +55,9 @@ auto Planner::PlanSelect(const SelectStatement &statement) -> AbstractPlanNodeRe
   if (!statement.where_->IsInvalid()) {
     auto schema = plan->OutputSchema();
     auto [_, expr] = PlanExpression(*statement.where_, {plan});
-    // 这里直接进行算子下推
-    const_cast<SeqScanPlanNode *>(dynamic_cast<const SeqScanPlanNode *>(plan.get()))->SetPredicate(expr);
-    // plan = std::make_shared<FilterPlanNode>(std::make_shared<Schema>(schema), std::move(expr), std::move(plan));
+    // 不能这里直接进行算子下推，在优化器中做
+    // const_cast<SeqScanPlanNode *>(dynamic_cast<const SeqScanPlanNode *>(plan.get()))->SetPredicate(expr);
+    plan = std::make_shared<FilterPlanNode>(std::make_shared<Schema>(schema), std::move(expr), std::move(plan));
   }
 
   bool has_agg = false;

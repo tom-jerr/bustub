@@ -13,6 +13,7 @@
  * For range scan of b+ tree
  */
 #pragma once
+#include <optional>
 #include <utility>
 #include "buffer/buffer_pool_manager.h"
 #include "storage/page/b_plus_tree_leaf_page.h"
@@ -28,8 +29,18 @@ class IndexIterator {
 
  public:
   // you may define your own constructor based on your member variables
-  IndexIterator(BufferPoolManager *bpm, ReadPageGuard &&leaf_page_guard, int index);
+  IndexIterator(BufferPoolManager *bpm, std::optional<ReadPageGuard> &&leaf_page_guard, int index);
+
   IndexIterator();
+  auto operator=(IndexIterator &&that) noexcept -> IndexIterator & {
+    bpm_ = that.bpm_;
+    leaf_page_guard_ = std::move(that.leaf_page_guard_);
+    index_ = that.index_;
+    that.index_ = -1;
+    that.leaf_page_guard_ = std::nullopt;
+    that.bpm_ = nullptr;
+    return *this;
+  }
   ~IndexIterator();  // NOLINT
 
   auto IsEnd() -> bool;
@@ -39,7 +50,13 @@ class IndexIterator {
   auto operator++() -> IndexIterator &;
 
   auto operator==(const IndexIterator &itr) const -> bool {
-    return leaf_page_guard_.GetPageId() == itr.leaf_page_guard_.GetPageId() && index_ == itr.index_;
+    if (!this->leaf_page_guard_.has_value()) {
+      return static_cast<bool>(!itr.leaf_page_guard_.has_value());
+    }
+    if (!itr.leaf_page_guard_.has_value()) {
+      return static_cast<bool>(!this->leaf_page_guard_.has_value());
+    }
+    return leaf_page_guard_.value().GetPageId() == itr.leaf_page_guard_.value().GetPageId() && index_ == itr.index_;
   }
 
   auto operator!=(const IndexIterator &itr) const -> bool { return !(*this == itr); }
@@ -47,7 +64,7 @@ class IndexIterator {
  private:
   // add your own private member variables here
   BufferPoolManager *bpm_;
-  ReadPageGuard leaf_page_guard_;
+  std::optional<ReadPageGuard> leaf_page_guard_;
   int index_;
 };
 

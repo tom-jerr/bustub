@@ -32,7 +32,16 @@
   }
 
 namespace bustub {
-
+enum class ExecExpressionType : uint8_t {
+  Arithmetic = 0,
+  Abstract,
+  Comparison,
+  Logic,
+  Value,
+  ColumnValue,
+  String,
+  Array,
+};
 class AbstractExpression;
 using AbstractExpressionRef = std::shared_ptr<AbstractExpression>;
 
@@ -47,8 +56,8 @@ class AbstractExpression {
    * @param children the children of this abstract expression
    * @param ret_type the return type of this abstract expression when it is evaluated
    */
-  AbstractExpression(std::vector<AbstractExpressionRef> children, Column ret_type)
-      : children_{std::move(children)}, ret_type_{std::move(ret_type)} {}
+  AbstractExpression(std::vector<AbstractExpressionRef> children, Column ret_type, ExecExpressionType type)
+      : children_{std::move(children)}, ret_type_{std::move(ret_type)}, type_(type) {}
 
   /** Virtual destructor. */
   virtual ~AbstractExpression() = default;
@@ -82,13 +91,15 @@ class AbstractExpression {
   /** @return a new expression with new children */
   virtual auto CloneWithChildren(std::vector<AbstractExpressionRef> children) const
       -> std::unique_ptr<AbstractExpression> = 0;
-
+  /** @return the type of this expression */
+  virtual auto GetType() const -> ExecExpressionType { return type_; };
   /** The children of this expression. Note that the order of appearance of children may matter. */
   std::vector<AbstractExpressionRef> children_;
 
  private:
   /** The return type of this expression. */
   Column ret_type_;
+  ExecExpressionType type_;
 };
 
 }  // namespace bustub

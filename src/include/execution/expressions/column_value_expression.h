@@ -34,8 +34,10 @@ class ColumnValueExpression : public AbstractExpression {
    * @param ret_type the return type of the expression
    */
   ColumnValueExpression(uint32_t tuple_idx, uint32_t col_idx, Column ret_type)
-      : AbstractExpression({}, std::move(ret_type)), tuple_idx_{tuple_idx}, col_idx_{col_idx} {}
-
+      : AbstractExpression({}, std::move(ret_type), ExecExpressionType::ColumnValue),
+        tuple_idx_{tuple_idx},
+        col_idx_{col_idx} {}
+  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::ColumnValue; }
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     return tuple->GetValue(&schema, col_idx_);
   }

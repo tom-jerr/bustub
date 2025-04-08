@@ -12,41 +12,21 @@
 
 #include "execution/executors/seq_scan_executor.h"
 #include <memory>
+#include "common/config.h"
 #include "common/logger.h"
 #include "storage/table/table_iterator.h"
 
 namespace bustub {
 
-SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan) : AbstractExecutor(exec_ctx) {
-  // Initialize the plan and the table heap
-  plan_ = plan;
-  if (plan_ == nullptr) {
-    throw ExecutionException("SeqScanExecutor: plan is null.");
-  }
-  if (exec_ctx == nullptr) {
-    throw ExecutionException("SeqScanExecutor: exec_ctx is null.");
-  }
-  if (exec_ctx->GetCatalog() == nullptr) {
-    throw ExecutionException("SeqScanExecutor: catalog is null.");
-  }
-}
+SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan)
+    : AbstractExecutor(exec_ctx), plan_(plan) {}
 
 void SeqScanExecutor::Init() {
-  auto table_oid = plan_->table_oid_;
-  // auto table_name = plan_->table_name_;
-  auto catalog = exec_ctx_->GetCatalog();
-  auto table_info = catalog->GetTable(table_oid);
-  if (table_info == nullptr) {
-    throw ExecutionException("SeqScanExecutor: table not found.");
-  }
-  auto table_heap = table_info->table_.get();
-  if (table_heap == nullptr) {
-    throw ExecutionException("SeqScanExecutor: table heap is null.");
-  }
-  auto schema = table_info->schema_;
+  auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
   // Initialize the table iterator
-  iter_ = std::make_unique<TableIterator>(table_heap->MakeIterator());
+  iter_ = std::make_unique<TableIterator>(table_info->table_->MakeIterator());
 }
+
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (iter_->IsEnd()) {
     // throw ExecutionException("SeqScanExecutor: table iterator is end.");
@@ -56,14 +36,18 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   // Iterate through the table and apply the filter predicate
   while (!iter_->IsEnd()) {
     auto [meta, current_tuple] = iter_->GetTuple();
-    if (!meta.is_deleted_ && (plan_->filter_predicate_ == nullptr ||
-                              plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).GetAs<bool>())) {
+    if (!meta.is_deleted_ &&
+        (plan_->filter_predicate_ == nullptr ||
+         !(plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).IsNull() ||
+           !plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).GetAs<bool>()))) {
       *tuple = current_tuple;
       *rid = current_tuple.GetRid();
       ++(*iter_);
       return true;
     }
+    *rid = RID();
     ++(*iter_);
+    return true;
   }
   // No more tuples to scan
   LOG_DEBUG("SeqScanExecutor: no more tuples to scan.");

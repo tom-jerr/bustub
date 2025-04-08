@@ -18,6 +18,7 @@
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/index_scan_plan.h"
+#include "storage/index/index_iterator.h"  // Include the header defining KeyType
 #include "storage/table/tuple.h"
 
 namespace bustub {
@@ -40,9 +41,15 @@ class IndexScanExecutor : public AbstractExecutor {
   void Init() override;
 
   auto Next(Tuple *tuple, RID *rid) -> bool override;
+  auto FullScan(Tuple *tuple, RID *rid) -> bool;
 
  private:
   /** The index scan plan node to be executed. */
   const IndexScanPlanNode *plan_;
+  /** The b+tree index */
+  BPlusTreeIndexForTwoIntegerColumn *b_tree_;
+  /** Record the index of pred_keys_ */
+  size_t index_{0};
+  BPlusTreeIndexIteratorForTwoIntegerColumn index_iter_;
 };
 }  // namespace bustub

@@ -25,8 +25,9 @@ namespace bustub {
 class ConstantValueExpression : public AbstractExpression {
  public:
   /** Creates a new constant value expression wrapping the given value. */
-  explicit ConstantValueExpression(const Value &val) : AbstractExpression({}, val.GetColumn()), val_(val) {}
-
+  explicit ConstantValueExpression(const Value &val)
+      : AbstractExpression({}, val.GetColumn(), ExecExpressionType::Value), val_(val) {}
+  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::Value; }
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override { return val_; }
 
   auto EvaluateJoin(const Tuple *left_tuple, const Schema &left_schema, const Tuple *right_tuple,

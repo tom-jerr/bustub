@@ -1,5 +1,6 @@
 #include "storage/index/b_plus_tree.h"
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include "common/config.h"
@@ -766,7 +767,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
   FindLeafPage(&ctx, Operation::SEARCH, key, comparator_, false, false);
   auto *leaf_page = ctx.read_set_.back().As<LeafPage>();
   auto index = leaf_page->KeyIndex(key, comparator_);
-  return INDEXITERATOR_TYPE(bpm_, std::move(ctx.read_set_.back()), index);
+  return INDEXITERATOR_TYPE(bpm_, std::optional<ReadPageGuard>(std::move(ctx.read_set_.back())), index);
 }
 
 /*
@@ -776,10 +777,10 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE {
-  Context ctx;
-  FindLeafPage(&ctx, Operation::SEARCH, KeyType(), comparator_, false, true);
-  auto *leaf_page = ctx.read_set_.back().As<LeafPage>();
-  return INDEXITERATOR_TYPE(bpm_, std::move(ctx.read_set_.back()), leaf_page->GetSize());
+  // Context ctx;
+  // FindLeafPage(&ctx, Operation::SEARCH, KeyType(), comparator_, false, true);
+  // auto *leaf_page = ctx.read_set_.back().As<LeafPage>();
+  return INDEXITERATOR_TYPE(bpm_, std::nullopt, 0);
 }
 
 /**

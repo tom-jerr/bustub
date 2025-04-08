@@ -16,6 +16,7 @@
 
 #include "buffer/buffer_pool_manager.h"
 #include "catalog/catalog.h"
+#include "common/config.h"
 #include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
 #include "execution/executor_context.h"
@@ -97,7 +98,7 @@ class ExecutionEngine {
     RID rid{};
     Tuple tuple{};
     while (executor->Next(&tuple, &rid)) {
-      if (result_set != nullptr) {
+      if (result_set != nullptr && rid.GetPageId() != INVALID_PAGE_ID) {
         result_set->push_back(tuple);
       }
     }

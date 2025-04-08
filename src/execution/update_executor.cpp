@@ -60,7 +60,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       LOG_DEBUG("Failed to insert new tuple after update, rid: %s", old_rid.ToString().c_str());
       return false;
     }
-
+    old_rid = new_rid.value();  // Update the old rid to the new rid
     // update the index
     for (auto &index_info : index_vector) {
       index_info->index_->InsertEntry(
@@ -77,6 +77,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   values.reserve(GetOutputSchema().GetColumnCount());
   values.emplace_back(ValueFactory::GetIntegerValue(num_update));
   *tuple = Tuple{values, &GetOutputSchema()};  // Return the number of rows updated
+  *rid = old_rid;                              // not really uesd
   is_return_ = true;                           // Mark that we have returned the result for this update
   return true;
 }

@@ -25,23 +25,7 @@ namespace bustub {
 
 InsertExecutor::InsertExecutor(ExecutorContext *exec_ctx, const InsertPlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx) {
-  // Initialize the plan and the child executor
-  plan_ = plan;
-  if (plan_ == nullptr) {
-    throw ExecutionException("SeqScanExecutor: plan is null.");
-  }
-  if (exec_ctx == nullptr) {
-    throw ExecutionException("SeqScanExecutor: exec_ctx is null.");
-  }
-  if (exec_ctx->GetCatalog() == nullptr) {
-    throw ExecutionException("SeqScanExecutor: catalog is null.");
-  }
-  child_executor_ = std::move(child_executor);
-  if (child_executor_ == nullptr) {
-    throw ExecutionException("InsertExecutor: child executor is null.");
-  }
-}
+    : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
 
 void InsertExecutor::Init() { child_executor_->Init(); }
 
@@ -51,13 +35,6 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   }
 
   auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
-  if (table_info == nullptr) {
-    throw ExecutionException("InsertExecutor: table not found.");
-  }
-  auto table_heap = table_info->table_.get();
-  if (table_heap == nullptr) {
-    throw ExecutionException("InsertExecutor: table heap is null.");
-  }
   auto transaction = exec_ctx_->GetTransaction();
   auto index_vector = exec_ctx_->GetCatalog()->GetTableIndexes(table_info->name_);
   int num_inserted = 0;
@@ -66,12 +43,13 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   Tuple child_tuple;
   RID child_rid;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
-    auto ret = table_heap->InsertTuple(TupleMeta{transaction->GetTransactionTempTs(), false}, child_tuple,
-                                       exec_ctx_->GetLockManager(), transaction);
+    auto ret = table_info->table_->InsertTuple(TupleMeta{transaction->GetTransactionTempTs(), false}, child_tuple,
+                                               exec_ctx_->GetLockManager(), transaction);
     if (!ret.has_value()) {
       LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
       return false;
     }
+    child_rid = ret.value();
 
     for (auto &index : index_vector) {
       index->index_->InsertEntry(
@@ -85,6 +63,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   values.reserve(GetOutputSchema().GetColumnCount());
   values.emplace_back(ValueFactory::GetIntegerValue(num_inserted));
   *tuple = Tuple{values, &GetOutputSchema()};
+  *rid = child_rid;
   is_return_ = true;
   return true;
 }

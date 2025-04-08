@@ -2,9 +2,9 @@
 //
 //                         BusTub
 //
-// arithmetic_expression.h
+// arithmetic_ExecExpression.h
 //
-// Identification: src/include/expression/arithmetic_expression.h
+// Identification: src/include/ExecExpression/arithmetic_ExecExpression.h
 //
 // Copyright (c) 2015-19, Carnegie Mellon University Database Group
 //
@@ -33,19 +33,21 @@ namespace bustub {
 enum class ArithmeticType { Plus, Minus };
 
 /**
- * ArithmeticExpression represents two expressions being computed, ONLY SUPPORT INTEGER FOR NOW.
+ * ArithmeticExecExpression represents two ExecExpressions being computed, ONLY SUPPORT INTEGER FOR NOW.
  */
 class ArithmeticExpression : public AbstractExpression {
  public:
-  /** Creates a new comparison expression representing (left comp_type right). */
+  /** Creates a new comparison ExecExpression representing (left comp_type right). */
   ArithmeticExpression(AbstractExpressionRef left, AbstractExpressionRef right, ArithmeticType compute_type)
-      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::INTEGER}),
+      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::INTEGER},
+                           ExecExpressionType::Arithmetic),
         compute_type_{compute_type} {
     if (GetChildAt(0)->GetReturnType().GetType() != TypeId::INTEGER ||
         GetChildAt(1)->GetReturnType().GetType() != TypeId::INTEGER) {
       throw bustub::NotImplementedException("only support integer for now");
     }
   }
+  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::Arithmetic; }
 
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     Value lhs = GetChildAt(0)->Evaluate(tuple, schema);
@@ -68,7 +70,7 @@ class ArithmeticExpression : public AbstractExpression {
     return ValueFactory::GetIntegerValue(*res);
   }
 
-  /** @return the string representation of the expression node and its children */
+  /** @return the string representation of the ExecExpression node and its children */
   auto ToString() const -> std::string override {
     return fmt::format("({}{}{})", *GetChildAt(0), compute_type_, *GetChildAt(1));
   }

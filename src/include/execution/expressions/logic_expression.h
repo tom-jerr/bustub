@@ -39,14 +39,15 @@ class LogicExpression : public AbstractExpression {
  public:
   /** Creates a new comparison expression representing (left comp_type right). */
   LogicExpression(AbstractExpressionRef left, AbstractExpressionRef right, LogicType logic_type)
-      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::BOOLEAN}),
+      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::BOOLEAN},
+                           ExecExpressionType::Logic),
         logic_type_{logic_type} {
     if (GetChildAt(0)->GetReturnType().GetType() != TypeId::BOOLEAN ||
         GetChildAt(1)->GetReturnType().GetType() != TypeId::BOOLEAN) {
       throw bustub::NotImplementedException("expect boolean from either side");
     }
   }
-
+  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::Logic; }
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     Value lhs = GetChildAt(0)->Evaluate(tuple, schema);
     Value rhs = GetChildAt(1)->Evaluate(tuple, schema);
