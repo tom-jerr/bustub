@@ -21,7 +21,10 @@ IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanP
 void IndexScanExecutor::Init() {
   b_tree_ = dynamic_cast<BPlusTreeIndexForTwoIntegerColumn *>(
       exec_ctx_->GetCatalog()->GetIndex(plan_->GetIndexOid())->index_.get());
-  index_iter_ = b_tree_->GetBeginIterator();
+  if (plan_->pred_keys_.empty()) {
+    // 只有在进行全表扫描的时候才进行初始化，否则会造成 leaf_guard 的读锁未释放，update 或者 insert 又要获取写锁
+    index_iter_ = b_tree_->GetBeginIterator();
+  }
 }
 
 auto IndexScanExecutor::FullScan(Tuple *tuple, RID *rid) -> bool {
@@ -61,17 +64,21 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     auto new_tuple = Tuple{values, &key_schema};
     b_tree_->ScanKey(new_tuple, &result, exec_ctx_->GetTransaction());
     if (result.empty()) {
-      return false;
+      LOG_DEBUG("IndexScanExecutor: This key does not exist");
+      // *rid = RID();
+      return true;
     }
     auto temp_rid = result[0];
     auto [meta_, tuple_] = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_)->table_->GetTuple(temp_rid);
     if (meta_.is_deleted_) {
-      return false;
+      // *rid = RID();
+      return true;
     }
     if (plan_->filter_predicate_) {
       auto value = plan_->filter_predicate_->Evaluate(&tuple_, GetOutputSchema());
       if (value.IsNull() || !value.GetAs<bool>()) {
-        return false;
+        // *rid = RID();
+        return true;
       }
     }
     *tuple = tuple_;

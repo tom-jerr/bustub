@@ -50,6 +50,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   values.reserve(GetOutputSchema().GetColumnCount());
   values.emplace_back(ValueFactory::GetIntegerValue(num_deleted));  // The number of rows deleted
   *tuple = Tuple{values, &GetOutputSchema()};
+  *rid = delete_rid.GetPageId() != INVALID_PAGE_ID ? delete_rid : RID{1, 0};
   is_return_ = true;
   return true;
 }

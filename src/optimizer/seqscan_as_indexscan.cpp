@@ -49,12 +49,11 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
 
         // 循环处理logic expression
         while (new_logic_expr->GetType() == ExecExpressionType::Logic && !is_logic_finished) {
-          if (dynamic_cast<LogicExpression *>(seq_scan_plan.filter_predicate_.get())->logic_type_ == LogicType::Or) {
-            const auto *logic_expr = dynamic_cast<const LogicExpression *>(seq_scan_plan.filter_predicate_.get());
-            // 先处理左边的 v1 = x
-            if (logic_expr->GetChildAt(0)->GetType() == ExecExpressionType::Comparison) {
+          if (new_logic_expr->logic_type_ == LogicType::Or) {
+            // 先处理右边的 v1 = x
+            if (new_logic_expr->GetChildAt(1)->GetType() == ExecExpressionType::Comparison) {
               // comp_expr_0: v1 = 3; comp_expr_1: v1 = 4 or v1 = 5
-              const auto *comp_expr_0 = dynamic_cast<const ComparisonExpression *>(logic_expr->GetChildAt(0).get());
+              const auto *comp_expr_0 = dynamic_cast<const ComparisonExpression *>(new_logic_expr->GetChildAt(1).get());
               // const auto *comp_expr_1 = dynamic_cast<const ComparisonExpression *>(logic_expr->GetChildAt(1).get());
               if (comp_expr_0->comp_type_ == ComparisonType::Equal) {
                 if (comp_expr_0->GetChildAt(0)->GetType() == ExecExpressionType::ColumnValue &&
@@ -77,12 +76,12 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
             }
             logic_col_expr = col_expr;
 
-            // 继续处理右边的表达式，可能是 or v1 = x ... 或者只是单独的 v1 = x
-            if (logic_expr->GetChildAt(1)->GetType() == ExecExpressionType::Logic) {
-              new_logic_expr = dynamic_cast<LogicExpression *>(logic_expr->GetChildAt(1).get());
+            // 继续处理左边的表达式，可能是 or v1 = x ... 或者只是单独的 v1 = x
+            if (new_logic_expr->GetChildAt(0)->GetType() == ExecExpressionType::Logic) {
+              new_logic_expr = dynamic_cast<LogicExpression *>(new_logic_expr->GetChildAt(0).get());
 
-            } else if (logic_expr->GetChildAt(1)->GetType() == ExecExpressionType::Comparison) {
-              const auto *comp_expr_1 = dynamic_cast<const ComparisonExpression *>(logic_expr->GetChildAt(1).get());
+            } else if (new_logic_expr->GetChildAt(0)->GetType() == ExecExpressionType::Comparison) {
+              const auto *comp_expr_1 = dynamic_cast<const ComparisonExpression *>(new_logic_expr->GetChildAt(0).get());
 
               if (comp_expr_1->comp_type_ == ComparisonType::Equal) {
                 if (comp_expr_1->GetChildAt(0)->GetType() == ExecExpressionType::ColumnValue &&
@@ -114,6 +113,8 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
             return optimized_plan;
           }
         }
+      } else {
+        return optimized_plan;
       }
 
       const auto table_info = catalog_.GetTable(seq_scan_plan.table_oid_);
@@ -129,6 +130,8 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
                                                      std::move(pred_keys));
         }
       }
+    } else {
+      return optimized_plan;
     }
   }
   return optimized_plan;
