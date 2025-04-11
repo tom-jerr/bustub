@@ -13,7 +13,8 @@
 #include "execution/plans/abstract_plan.h"
 
 namespace bustub {
-
+void ParseAndExpression(const AbstractExpressionRef &expr, std::vector<AbstractExpressionRef> &left_exprs,
+                        std::vector<AbstractExpressionRef> &right_exprs);
 /**
  * The optimizer takes an `AbstractPlanNode` and outputs an optimized `AbstractPlanNode`.
  */

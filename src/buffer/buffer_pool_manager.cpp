@@ -47,7 +47,8 @@ auto FrameHeader::GetDataMut() -> char * { return data_.data(); }
  * @brief Resets a `FrameHeader`'s member fields.
  */
 void FrameHeader::Reset() {
-  std::fill(data_.begin(), data_.end(), 0);
+  // std::fill(data_.begin(), data_.end(), 0);
+  std::memset(data_.data(), 0, data_.size());
   pin_count_.store(0);
   is_dirty_ = false;
   current_page_id_ = INVALID_PAGE_ID;
@@ -188,6 +189,8 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
     free_frames_.push_back(frame_idx);
     page_table_.erase(frame_id);
     replacer_->Remove(frame_idx);
+
+    disk_scheduler_->DeallocatePage(page_id);
     return true;
   }
   return true;

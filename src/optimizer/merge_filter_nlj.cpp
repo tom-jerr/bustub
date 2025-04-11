@@ -14,7 +14,7 @@
 #include "type/type_id.h"
 
 namespace bustub {
-
+// 将filter中单个表的expression，重新构造成符合join的expression
 auto Optimizer::RewriteExpressionForJoin(const AbstractExpressionRef &expr, size_t left_column_cnt,
                                          size_t right_column_cnt) -> AbstractExpressionRef {
   std::vector<AbstractExpressionRef> children;

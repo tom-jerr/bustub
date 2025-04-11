@@ -23,6 +23,8 @@
 #include "execution/plans/sort_plan.h"
 #include "storage/table/tuple.h"
 
+#define SORT_PAGE_HEADER_SIZE 12
+// #define SORT_PAGE_SLOT_CNT ((BUSTUB_PAGE_SIZE - SORT_PAGE_HEADER_SIZE) / sizeof(Tuple))
 namespace bustub {
 
 /**
@@ -36,11 +38,35 @@ class SortPage {
    * TODO: Define and implement the methods for reading data from and writing data to the sort
    * page. Feel free to add other helper methods.
    */
+  explicit SortPage(uint32_t tuple_length) : max_size_((BUSTUB_PAGE_SIZE - SORT_PAGE_HEADER_SIZE) / tuple_length) {}
+
+  void WriteTuples(const std::vector<Tuple> &tuples) {
+    size_ = tuples.size();
+    tuple_length_ = tuples[0].GetLength();
+    for (uint32_t i = 0; i < size_; i++) {
+      memcpy(page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuples[i].GetData(), tuple_length_);
+    }
+  }
+
+  auto ReadTuples() -> std::vector<Tuple> {
+    std::vector<Tuple> tuples;
+    for (uint32_t i = 0; i < size_; i++) {
+      tuples.emplace_back(RID(), page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuple_length_);
+    }
+    return tuples;
+  }
+  auto GetSize() -> uint32_t { return size_; }
+  auto GetMaxSize() -> uint32_t { return max_size_; }
+
  private:
   /**
    * TODO: Define the private members. You may want to have some necessary metadata for
    * the sort page before the start of the actual data.
    */
+  [[maybe_unused]] uint32_t size_{0};
+  [[maybe_unused]] uint32_t max_size_;
+  [[maybe_unused]] uint32_t tuple_length_;
+  char page_start_[0];
 };
 
 /**
