@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include "buffer/buffer_pool_manager.h"
 #include "common/config.h"
 #include "common/macros.h"
 #include "execution/execution_common.h"
@@ -38,7 +39,12 @@ class SortPage {
    * TODO: Define and implement the methods for reading data from and writing data to the sort
    * page. Feel free to add other helper methods.
    */
-  explicit SortPage(uint32_t tuple_length) : max_size_((BUSTUB_PAGE_SIZE - SORT_PAGE_HEADER_SIZE) / tuple_length) {}
+  SortPage() = default;
+  void Init(uint32_t max_size, uint32_t tuple_length) {
+    size_ = 0;
+    max_size_ = max_size;
+    tuple_length_ = tuple_length;
+  }
 
   void WriteTuples(const std::vector<Tuple> &tuples) {
     size_ = tuples.size();
@@ -51,7 +57,8 @@ class SortPage {
   auto ReadTuples() -> std::vector<Tuple> {
     std::vector<Tuple> tuples;
     for (uint32_t i = 0; i < size_; i++) {
-      tuples.emplace_back(RID(), page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuple_length_);
+      Tuple tuple{RID(), page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuple_length_};
+      tuples.emplace_back(tuple);
     }
     return tuples;
   }
@@ -63,9 +70,9 @@ class SortPage {
    * TODO: Define the private members. You may want to have some necessary metadata for
    * the sort page before the start of the actual data.
    */
-  [[maybe_unused]] uint32_t size_{0};
-  [[maybe_unused]] uint32_t max_size_;
-  [[maybe_unused]] uint32_t tuple_length_;
+  uint32_t size_;
+  uint32_t max_size_;
+  uint32_t tuple_length_;
   char page_start_[0];
 };
 
@@ -79,7 +86,8 @@ class MergeSortRun {
   MergeSortRun() = default;
   MergeSortRun(std::vector<page_id_t> pages, BufferPoolManager *bpm) : pages_(std::move(pages)), bpm_(bpm) {}
 
-  auto GetPageCount() -> size_t { return pages_.size(); }
+  auto GetPageCount() const -> size_t { return pages_.size(); }
+  auto GetPages() const -> const std::vector<page_id_t> & { return pages_; }
 
   /** Iterator for iterating on the sorted tuples in one run. */
   class Iterator {
@@ -87,6 +95,27 @@ class MergeSortRun {
 
    public:
     Iterator() = default;
+    Iterator(const Iterator &other) {
+      run_ = other.run_;
+      bpm_ = other.bpm_;
+      current_page_idx_ = other.current_page_idx_;
+      current_tuple_idx_ = other.current_tuple_idx_;
+      tuples_ = other.tuples_;
+    }
+    auto operator=(const Iterator &other) -> Iterator & = default;
+    Iterator(const MergeSortRun *run, BufferPoolManager *bpm) : run_(run), bpm_(bpm) {
+      if (bpm_ != nullptr && !run_->pages_.empty()) {
+        auto page = bpm_->CheckedWritePage(run_->pages_[0]);
+        BUSTUB_ASSERT(page.has_value(), "MergeSortRun: Failed to get page");
+        auto sort_page = page.value().AsMut<SortPage>();
+        tuples_ = sort_page->ReadTuples();
+      }
+      if (bpm_ == nullptr) {
+        tuples_ = {};
+        current_tuple_idx_ = -1;
+        current_page_idx_ = -1;
+      }
+    }
 
     /**
      * Advance the iterator to the next tuple. If the current sort page is exhausted, move to the
@@ -94,7 +123,27 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator++() -> Iterator & { return *this; }
+    auto operator++() -> Iterator & {
+      ++current_tuple_idx_;
+      if (current_tuple_idx_ >= tuples_.size()) {
+        // load next sortpage
+        current_page_idx_++;
+        if (current_page_idx_ < run_->GetPageCount()) {
+          auto page = bpm_->CheckedWritePage(run_->pages_[current_page_idx_]);
+          BUSTUB_ASSERT(page.has_value(), "MergeSortRun: Failed to get page");
+          auto sort_page = page.value().AsMut<SortPage>();
+          tuples_ = sort_page->ReadTuples();
+          current_tuple_idx_ = 0;
+
+        } else {
+          current_page_idx_ = -1;  // 已经遍历完所有页
+          current_tuple_idx_ = -1;
+          tuples_ = {};
+          bpm_ = nullptr;
+        }
+      }
+      return *this;
+    }
 
     /**
      * Dereference the iterator to get the current tuple in the sorted run that the iterator is
@@ -102,14 +151,17 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator*() -> Tuple { return {}; }
+    auto operator*() -> Tuple { return tuples_[current_tuple_idx_]; }
 
     /**
      * Checks whether two iterators are pointing to the same tuple in the same sorted run.
      *
      * TODO: Implement this method.
      */
-    auto operator==(const Iterator &other) const -> bool { return false; }
+    auto operator==(const Iterator &other) const -> bool {
+      return run_ == other.run_ && current_page_idx_ == other.current_page_idx_ &&
+             current_tuple_idx_ == other.current_tuple_idx_;
+    }
 
     /**
      * Checks whether two iterators are pointing to different tuples in a sorted run or iterating
@@ -117,7 +169,10 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator!=(const Iterator &other) const -> bool { return false; }
+    auto operator!=(const Iterator &other) const -> bool {
+      return run_ != other.run_ || current_page_idx_ != other.current_page_idx_ ||
+             current_tuple_idx_ != other.current_tuple_idx_;
+    }
 
    private:
     explicit Iterator(const MergeSortRun *run) : run_(run) {}
@@ -130,6 +185,10 @@ class MergeSortRun {
      * position in the sorted run. Also feel free to add additional constructors to initialize
      * your private members.
      */
+    BufferPoolManager *bpm_;
+    size_t current_page_idx_{0};
+    size_t current_tuple_idx_{0};
+    std::vector<Tuple> tuples_;
   };
 
   /**
@@ -137,14 +196,14 @@ class MergeSortRun {
    *
    * TODO: Implement this method.
    */
-  auto Begin() -> Iterator { return {}; }
+  auto Begin() -> Iterator { return {this, bpm_}; }
 
   /**
    * Get an iterator pointing to the end of the sorted run, i.e. the position after the last tuple.
    *
    * TODO: Implement this method.
    */
-  auto End() -> Iterator { return {}; }
+  auto End() -> Iterator { return {this, nullptr}; }
 
  private:
   /** The page IDs of the sort pages that store the sorted tuples. */
@@ -182,6 +241,13 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); }
 
  private:
+  void FlushBufferToRun(std::vector<SortEntry> &buffer, BufferPoolManager *bpm, size_t max_tuples_per_page,
+                        size_t tuple_length, std::vector<page_id_t> &pages);
+
+  auto MergeKRuns(std::vector<MergeSortRun> &runs, BufferPoolManager *bpm, size_t max_tuples_per_page,
+                  size_t tuple_length) -> MergeSortRun;
+
+ private:
   /** The sort plan node to be executed */
   const SortPlanNode *plan_;
 
@@ -189,6 +255,10 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   TupleComparator cmp_;
 
   /** TODO: You will want to add your own private members here. */
+  std::unique_ptr<AbstractExecutor> child_executor_;
+  std::vector<MergeSortRun> runs_;
+  MergeSortRun::Iterator current_iterator_;
+  MergeSortRun::Iterator end_iterator_;
 };
 
 }  // namespace bustub

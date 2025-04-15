@@ -38,8 +38,8 @@ class HashJoinPlanNode : public AbstractPlanNode {
                    std::vector<AbstractExpressionRef> left_key_expressions,
                    std::vector<AbstractExpressionRef> right_key_expressions, JoinType join_type)
       : AbstractPlanNode(std::move(output_schema), {std::move(left), std::move(right)}),
-        left_key_expressions_{std::move(left_key_expressions)},
-        right_key_expressions_{std::move(right_key_expressions)},
+        left_key_expressions_(std::move(left_key_expressions)),
+        right_key_expressions_(std::move(right_key_expressions)),
         join_type_(join_type) {}
 
   /** @return The type of the plan node */

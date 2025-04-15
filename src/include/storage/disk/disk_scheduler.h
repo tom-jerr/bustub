@@ -72,7 +72,7 @@ struct DiskRequest {
  * thread is created in the DiskScheduler constructor and joined in its destructor.
  */
 class DiskScheduler {
-  enum { THREAD_NUM = 16 };
+  enum { THREAD_NUM = 1 };
 
  public:
   explicit DiskScheduler(DiskManager *disk_manager);

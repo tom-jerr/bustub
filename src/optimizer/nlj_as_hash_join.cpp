@@ -56,12 +56,11 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
     return optimized_plan;
   }
   const auto &join_plan = dynamic_cast<const NestedLoopJoinPlanNode &>(*optimized_plan);
-
   auto predicate = join_plan.Predicate();
   std::vector<AbstractExpressionRef> left_predicate_exprs;
   std::vector<AbstractExpressionRef> right_predicate_exprs;
   ParseAndExpression(predicate, left_predicate_exprs, right_predicate_exprs);
-  return std::make_shared<HashJoinPlanNode>(join_plan.OutputSchema(), join_plan.GetLeftPlan(), join_plan.GetRightPlan(),
+  return std::make_shared<HashJoinPlanNode>(join_plan.output_schema_, join_plan.GetLeftPlan(), join_plan.GetRightPlan(),
                                             left_predicate_exprs, right_predicate_exprs, join_plan.GetJoinType());
 }
 

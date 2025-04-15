@@ -120,7 +120,7 @@ class BufferPoolManager {
                     LogManager *log_manager = nullptr);
   ~BufferPoolManager();
 
-  auto Size() const -> size_t;
+  auto Size() const -> size_t { return num_frames_; }
   auto NewPage() -> page_id_t;
   auto DeletePage(page_id_t page_id) -> bool;
   auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
