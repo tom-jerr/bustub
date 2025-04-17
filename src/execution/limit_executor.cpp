@@ -21,6 +21,7 @@ LimitExecutor::LimitExecutor(ExecutorContext *exec_ctx, const LimitPlanNode *pla
 void LimitExecutor::Init() {
   child_executor_->Init();
   limit_count_ = plan_->GetLimit();
+  index_ = 0;
 }
 
 auto LimitExecutor::Next(Tuple *tuple, RID *rid) -> bool {

@@ -59,6 +59,12 @@ void ExternalMergeSortExecutor<K>::FlushBufferToRun(std::vector<SortEntry> &buff
 
 template <size_t K>
 void ExternalMergeSortExecutor<K>::Init() {
+  if (is_inited_) {
+    BUSTUB_ASSERT(!runs_.empty(), "MergeSortRun should not be empty");
+    current_iterator_ = runs_[0].Begin();
+    end_iterator_ = runs_[0].End();
+    return;
+  }
   child_executor_->Init();
   // 1. 生成初始的mergesortrun
   auto *bpm = exec_ctx_->GetBufferPoolManager();
@@ -108,6 +114,7 @@ void ExternalMergeSortExecutor<K>::Init() {
   if (!runs_.empty()) {
     current_iterator_ = runs_[0].Begin();
     end_iterator_ = runs_[0].End();
+    is_inited_ = true;
   }
 }
 

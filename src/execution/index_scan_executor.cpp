@@ -21,6 +21,7 @@ IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanP
 void IndexScanExecutor::Init() {
   b_tree_ = dynamic_cast<BPlusTreeIndexForTwoIntegerColumn *>(
       exec_ctx_->GetCatalog()->GetIndex(plan_->GetIndexOid())->index_.get());
+  index_ = 0;
   if (plan_->pred_keys_.empty()) {
     // 只有在进行全表扫描的时候才进行初始化，否则会造成 leaf_guard 的读锁未释放，update 或者 insert 又要获取写锁
     index_iter_ = b_tree_->GetBeginIterator();

@@ -72,19 +72,19 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   RID right_rid{1, 0};
   auto left_schema = left_executor_->GetOutputSchema();
   auto right_schema = right_executor_->GetOutputSchema();
-
+  // right_done_ 保证不会重复输出 left_tuple
   while (!left_done_) {
     // scan all right tuples
     while (right_executor_->Next(&right_tuple, &right_rid)) {
       if (plan_->Predicate()->EvaluateJoin(&left_tuple_, left_schema, &right_tuple, right_schema).GetAs<bool>()) {
-        // right_done_ = true;
+        right_done_ = true;
         *tuple = InnerJoinTuple(&left_tuple_, &right_tuple);
         *rid = left_rid;
         return true;
       }
     }
     // left join
-    if (plan_->GetJoinType() == JoinType::LEFT) {
+    if (plan_->GetJoinType() == JoinType::LEFT && !right_done_) {
       *tuple = LeftAntiJoinTuple(&left_tuple_);
       *rid = left_rid;
       left_done_ = !left_executor_->Next(&left_tuple_, &left_rid);
@@ -95,7 +95,7 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     // right is done
     left_done_ = !left_executor_->Next(&left_tuple_, &left_rid);
     right_executor_->Init();
-    // right_done_ = false;
+    right_done_ = false;
   }
   return false;
 }

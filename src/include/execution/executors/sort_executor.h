@@ -56,6 +56,7 @@ class SortExecutor : public AbstractExecutor {
   std::vector<std::pair<Tuple, RID>> sorted_tuples_;
   /** Iterator of sorted_tuples */
   std::vector<std::pair<Tuple, RID>>::iterator sorted_iter_;
+  bool is_inited_{false};
 };
 
 class CompareTuple {

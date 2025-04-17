@@ -10,11 +10,13 @@ SortExecutor::SortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan,
 void SortExecutor::Init() {
   Tuple tuple;
   RID rid;
-  while (child_executor_->Next(&tuple, &rid)) {
-    // auto tuple_rid = TupleRID{tuple, rid};
-    sorted_tuples_.emplace_back(std::make_pair(tuple, rid));
+  if (!is_inited_) {
+    while (child_executor_->Next(&tuple, &rid)) {
+      // auto tuple_rid = TupleRID{tuple, rid};
+      sorted_tuples_.emplace_back(std::make_pair(tuple, rid));
+    }
+    std::sort(sorted_tuples_.begin(), sorted_tuples_.end(), CompareTuple(&plan_->GetOrderBy(), &GetOutputSchema()));
   }
-  std::sort(sorted_tuples_.begin(), sorted_tuples_.end(), CompareTuple(&plan_->GetOrderBy(), &GetOutputSchema()));
   sorted_iter_ = sorted_tuples_.begin();
 }
 

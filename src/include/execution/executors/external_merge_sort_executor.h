@@ -259,6 +259,7 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   std::vector<MergeSortRun> runs_;
   MergeSortRun::Iterator current_iterator_;
   MergeSortRun::Iterator end_iterator_;
+  bool is_inited_{false};
 };
 
 }  // namespace bustub

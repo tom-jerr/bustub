@@ -30,6 +30,9 @@ void ParseAndExpression(const AbstractExpressionRef &expr, std::vector<AbstractE
   // 区分每个数据元素是从左侧表还是右侧表提取的，例如 A.id = B.id时，系统需要知道 A.id 和 B.id 分别属于哪个数据源
   if (comp_expr != nullptr) {
     auto column_value_expr = dynamic_cast<ColumnValueExpression *>(comp_expr->GetChildAt(0).get());
+    if (column_value_expr == nullptr) {
+      return;
+    }
     if (column_value_expr->GetTupleIdx() == 0) {
       left_exprs.emplace_back(comp_expr->GetChildAt(0));
       right_exprs.emplace_back(comp_expr->GetChildAt(1));
@@ -56,6 +59,9 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
   std::vector<AbstractExpressionRef> left_predicate_exprs;
   std::vector<AbstractExpressionRef> right_predicate_exprs;
   ParseAndExpression(predicate, left_predicate_exprs, right_predicate_exprs);
+  if (left_predicate_exprs.empty() || right_predicate_exprs.empty()) {
+    return optimized_plan;
+  }
   return std::make_shared<HashJoinPlanNode>(join_plan.output_schema_, join_plan.GetLeftPlan(), join_plan.GetRightPlan(),
                                             left_predicate_exprs, right_predicate_exprs, join_plan.GetJoinType());
 }
