@@ -79,7 +79,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   values.reserve(GetOutputSchema().GetColumnCount());
   values.emplace_back(ValueFactory::GetIntegerValue(num_update));
   *tuple = Tuple{values, &GetOutputSchema()};  // Return the number of rows updated
-  *rid = new_rid.value();                      // not really uesd
+  //*rid = new_rid.value();                      // not really uesd
   is_return_ = true;                           // Mark that we have returned the result for this update
   return true;
 }

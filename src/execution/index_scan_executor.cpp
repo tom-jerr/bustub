@@ -31,6 +31,7 @@ auto IndexScanExecutor::FullScan(Tuple *tuple, RID *rid) -> bool {
   std::vector<RID> result;
   auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_);
   if (index_iter_ == b_tree_->GetEndIterator()) {
+    LOG_DEBUG("IndexScanExecutor: No more tuples to scan");
     return false;
   }
   auto [_, tree_rid] = *index_iter_;
@@ -65,8 +66,8 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     b_tree_->ScanKey(new_tuple, &result, exec_ctx_->GetTransaction());
     if (result.empty()) {
       LOG_DEBUG("IndexScanExecutor: This key does not exist");
-      // *rid = RID();
-      return true;
+      values.clear();
+      continue;
     }
     auto temp_rid = result[0];
     auto [meta_, tuple_] = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_)->table_->GetTuple(temp_rid);

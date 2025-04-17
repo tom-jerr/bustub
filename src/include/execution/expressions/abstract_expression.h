@@ -32,7 +32,7 @@
   }
 
 namespace bustub {
-enum class ExecExpressionType : uint8_t {
+/*enum class ExecExpressionType : uint8_t {
   Arithmetic = 0,
   Abstract,
   Comparison,
@@ -41,7 +41,7 @@ enum class ExecExpressionType : uint8_t {
   ColumnValue,
   String,
   Array,
-};
+};*/
 class AbstractExpression;
 using AbstractExpressionRef = std::shared_ptr<AbstractExpression>;
 
@@ -56,8 +56,8 @@ class AbstractExpression {
    * @param children the children of this abstract expression
    * @param ret_type the return type of this abstract expression when it is evaluated
    */
-  AbstractExpression(std::vector<AbstractExpressionRef> children, Column ret_type, ExecExpressionType type)
-      : children_{std::move(children)}, ret_type_{std::move(ret_type)}, type_(type) {}
+  AbstractExpression(std::vector<AbstractExpressionRef> children, Column ret_type)
+      : children_{std::move(children)}, ret_type_{std::move(ret_type)} {}
 
   /** Virtual destructor. */
   virtual ~AbstractExpression() = default;
@@ -66,12 +66,19 @@ class AbstractExpression {
   virtual auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value = 0;
 
   /**
+   *
    * Returns the value obtained by evaluating a JOIN.
+   *
    * @param left_tuple The left tuple
+   *
    * @param left_schema The left tuple's schema
+   *
    * @param right_tuple The right tuple
+   *
    * @param right_schema The right tuple's schema
+   *
    * @return The value obtained by evaluating a JOIN on the left and right
+   *
    */
   virtual auto EvaluateJoin(const Tuple *left_tuple, const Schema &left_schema, const Tuple *right_tuple,
                             const Schema &right_schema) const -> Value = 0;
@@ -91,15 +98,13 @@ class AbstractExpression {
   /** @return a new expression with new children */
   virtual auto CloneWithChildren(std::vector<AbstractExpressionRef> children) const
       -> std::unique_ptr<AbstractExpression> = 0;
-  /** @return the type of this expression */
-  virtual auto GetType() const -> ExecExpressionType { return type_; };
+
   /** The children of this expression. Note that the order of appearance of children may matter. */
   std::vector<AbstractExpressionRef> children_;
 
  private:
   /** The return type of this expression. */
   Column ret_type_;
-  ExecExpressionType type_;
 };
 
 }  // namespace bustub

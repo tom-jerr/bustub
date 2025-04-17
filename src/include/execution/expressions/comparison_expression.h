@@ -34,10 +34,8 @@ class ComparisonExpression : public AbstractExpression {
  public:
   /** Creates a new comparison expression representing (left comp_type right). */
   ComparisonExpression(AbstractExpressionRef left, AbstractExpressionRef right, ComparisonType comp_type)
-      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::BOOLEAN},
-                           ExecExpressionType::Comparison),
+      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::BOOLEAN}),
         comp_type_{comp_type} {}
-  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::Comparison; }
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     Value lhs = GetChildAt(0)->Evaluate(tuple, schema);
     Value rhs = GetChildAt(1)->Evaluate(tuple, schema);

@@ -28,10 +28,7 @@ class ArrayExpression : public AbstractExpression {
  public:
   /** Creates a new constant value expression wrapping the given value. */
   explicit ArrayExpression(const std::vector<AbstractExpressionRef> &children)
-      : AbstractExpression(children, Column{"<val>", TypeId::VECTOR, static_cast<uint32_t>(children.size())},
-                           ExecExpressionType::Array) {}
-
-  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::Array; }
+      : AbstractExpression(children, Column{"<val>", TypeId::VECTOR, static_cast<uint32_t>(children.size())}) {}
 
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     std::vector<double> values;

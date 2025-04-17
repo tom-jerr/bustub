@@ -22,113 +22,98 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
   auto optimized_plan = plan->CloneWithChildren(std::move(children));
   if (optimized_plan->GetType() == PlanType::SeqScan) {
     const auto &seq_scan_plan = dynamic_cast<const SeqScanPlanNode &>(*optimized_plan);
-    if (seq_scan_plan.filter_predicate_ != nullptr) {
-      const ColumnValueExpression *col_expr{nullptr};
+    const auto table_info = catalog_.GetTable(seq_scan_plan.table_oid_);
+    const auto index_infos = catalog_.GetTableIndexes(table_info->name_);
+    auto comp_expr = std::dynamic_pointer_cast<ComparisonExpression>(seq_scan_plan.filter_predicate_);
+    auto logic_expr = std::dynamic_pointer_cast<LogicExpression>(seq_scan_plan.filter_predicate_);
 
-      // const ConstantValueExpression *const_expr{nullptr};
+    if (comp_expr != nullptr || logic_expr != nullptr) {
+      uint32_t col_idx{UINT32_MAX};
       // case1 : where v1 = 1 and where 1 = v1;
-      if (seq_scan_plan.filter_predicate_->GetType() == ExecExpressionType::Comparison) {
-        const auto *comp_expr = dynamic_cast<const ComparisonExpression *>(seq_scan_plan.filter_predicate_.get());
-        if (comp_expr->comp_type_ == ComparisonType::Equal) {
-          if (comp_expr->GetChildAt(0)->GetType() == ExecExpressionType::ColumnValue &&
-              comp_expr->GetChildAt(1)->GetType() == ExecExpressionType::Value) {
-            col_expr = dynamic_cast<const ColumnValueExpression *>(comp_expr->GetChildAt(0).get());
-            // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr->GetChildAt(1).get());
-            pred_keys.emplace_back(comp_expr->GetChildAt(1));
-          } else if (comp_expr->GetChildAt(0)->GetType() == ExecExpressionType::Value &&
-                     comp_expr->GetChildAt(1)->GetType() == ExecExpressionType::ColumnValue) {
-            col_expr = dynamic_cast<const ColumnValueExpression *>(comp_expr->GetChildAt(1).get());
-            // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr->GetChildAt(0).get());
-            pred_keys.emplace_back(comp_expr->GetChildAt(0));
-          }
+      if (comp_expr != nullptr && comp_expr->comp_type_ == ComparisonType::Equal) {
+        auto col_expr = std::dynamic_pointer_cast<ColumnValueExpression>(comp_expr->GetChildAt(0));
+        auto col_expr_rev = std::dynamic_pointer_cast<ColumnValueExpression>(comp_expr->GetChildAt(1));
+        auto val_expr = std::dynamic_pointer_cast<ConstantValueExpression>(comp_expr->GetChildAt(1));
+        auto val_expr_rev = std::dynamic_pointer_cast<ConstantValueExpression>(comp_expr->GetChildAt(0));
+        if (col_expr != nullptr && val_expr != nullptr) {
+          col_idx = col_expr->GetColIdx();
+          pred_keys.emplace_back(val_expr);
+        } else if (col_expr_rev != nullptr && val_expr_rev != nullptr) {
+          col_idx = col_expr_rev->GetColIdx();
+          pred_keys.emplace_back(val_expr_rev);
         }
-        else {
-          return optimized_plan;
-        }
-      } else if (seq_scan_plan.filter_predicate_->GetType() == ExecExpressionType::Logic) {
+      } else {
         // case 2: where v1 = 1 or v1 = 2 or ...;
-        const ColumnValueExpression *logic_col_expr{nullptr};
-        auto *new_logic_expr = dynamic_cast<LogicExpression *>(seq_scan_plan.filter_predicate_.get());
-
+        auto new_logic_expr = std::dynamic_pointer_cast<LogicExpression>(seq_scan_plan.filter_predicate_);
         // 循环处理logic expression
-        while (new_logic_expr->GetType() == ExecExpressionType::Logic && !is_logic_finished) {
-          if (new_logic_expr->logic_type_ == LogicType::Or) {
-            // 先处理右边的 v1 = x
-            if (new_logic_expr->GetChildAt(1)->GetType() == ExecExpressionType::Comparison) {
-              // comp_expr_0: v1 = 3; comp_expr_1: v1 = 4 or v1 = 5
-              const auto *comp_expr_0 = dynamic_cast<const ComparisonExpression *>(new_logic_expr->GetChildAt(1).get());
-              // const auto *comp_expr_1 = dynamic_cast<const ComparisonExpression *>(logic_expr->GetChildAt(1).get());
-              if (comp_expr_0->comp_type_ == ComparisonType::Equal) {
-                if (comp_expr_0->GetChildAt(0)->GetType() == ExecExpressionType::ColumnValue &&
-                    comp_expr_0->GetChildAt(1)->GetType() == ExecExpressionType::Value) {
-                  col_expr = dynamic_cast<const ColumnValueExpression *>(comp_expr_0->GetChildAt(0).get());
-                  // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr_0->GetChildAt(1).get());
-
-                  pred_keys.emplace_back(comp_expr_0->GetChildAt(1));
-                } else if (comp_expr_0->GetChildAt(0)->GetType() == ExecExpressionType::Value &&
-                           comp_expr_0->GetChildAt(1)->GetType() == ExecExpressionType::ColumnValue) {
-                  col_expr = dynamic_cast<const ColumnValueExpression *>(comp_expr_0->GetChildAt(1).get());
-                  // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr_0->GetChildAt(0).get());
-                  pred_keys.emplace_back(comp_expr_0->GetChildAt(0));
-                }
-              }
+        while (new_logic_expr != nullptr && new_logic_expr->logic_type_ == LogicType::Or && !is_logic_finished) {
+          // 先处理右边的 v1 = x
+          auto right_comp_expr = std::dynamic_pointer_cast<ComparisonExpression>(new_logic_expr->GetChildAt(1));
+          if (right_comp_expr != nullptr && right_comp_expr->comp_type_ == ComparisonType::Equal) {
+            // comp_expr_0: v1 = 3; comp_expr_1: v1 = 4 or v1 = 5
+            auto col_expr = std::dynamic_pointer_cast<ColumnValueExpression>(right_comp_expr->GetChildAt(0));
+            auto col_expr_rev = std::dynamic_pointer_cast<ColumnValueExpression>(right_comp_expr->GetChildAt(1));
+            auto val_expr = std::dynamic_pointer_cast<ConstantValueExpression>(right_comp_expr->GetChildAt(1));
+            auto val_expr_rev = std::dynamic_pointer_cast<ConstantValueExpression>(right_comp_expr->GetChildAt(0));
+            size_t now_col_idx{UINT32_MAX};
+            if (col_expr != nullptr && val_expr != nullptr) {
+              col_idx = col_idx == UINT32_MAX ? col_expr->GetColIdx() : col_idx;
+              now_col_idx = col_expr->GetColIdx();
+              pred_keys.emplace_back(val_expr);
+            } else if (col_expr_rev != nullptr && val_expr_rev != nullptr) {
+              col_idx = col_idx == UINT32_MAX ? col_expr_rev->GetColIdx() : col_idx;
+              now_col_idx = col_expr_rev->GetColIdx();
+              pred_keys.emplace_back(val_expr_rev);
             }
             // 如果此时 column 不同直接放弃优化
-            if (logic_col_expr != nullptr && logic_col_expr->GetColIdx() != col_expr->GetColIdx()) {
+            if (col_idx != now_col_idx) {
               return optimized_plan;
             }
-            logic_col_expr = col_expr;
 
             // 继续处理左边的表达式，可能是 or v1 = x ... 或者只是单独的 v1 = x
-            if (new_logic_expr->GetChildAt(0)->GetType() == ExecExpressionType::Logic) {
-              new_logic_expr = dynamic_cast<LogicExpression *>(new_logic_expr->GetChildAt(0).get());
-
-            } else if (new_logic_expr->GetChildAt(0)->GetType() == ExecExpressionType::Comparison) {
-              const auto *comp_expr_1 = dynamic_cast<const ComparisonExpression *>(new_logic_expr->GetChildAt(0).get());
-
-              if (comp_expr_1->comp_type_ == ComparisonType::Equal) {
-                if (comp_expr_1->GetChildAt(0)->GetType() == ExecExpressionType::ColumnValue &&
-                    comp_expr_1->GetChildAt(1)->GetType() == ExecExpressionType::Value) {
-                  col_expr = dynamic_cast<const ColumnValueExpression *>(comp_expr_1->GetChildAt(0).get());
-                  // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr_1->GetChildAt(1).get());
-                  pred_keys.emplace_back(comp_expr_1->GetChildAt(1));
-                } else if (comp_expr_1->GetChildAt(0)->GetType() == ExecExpressionType::Value &&
-                           comp_expr_1->GetChildAt(1)->GetType() == ExecExpressionType::ColumnValue) {
-                  col_expr = dynamic_cast<const ColumnValueExpression *>(comp_expr_1->GetChildAt(1).get());
-                  // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr_1->GetChildAt(0).get());
-                  pred_keys.emplace_back(comp_expr_1->GetChildAt(0));
+            auto last_comp_expr = std::dynamic_pointer_cast<ComparisonExpression>(new_logic_expr->GetChildAt(0));
+            if (last_comp_expr != nullptr) {
+              if (last_comp_expr->comp_type_ == ComparisonType::Equal) {
+                auto col_expr = std::dynamic_pointer_cast<ColumnValueExpression>(last_comp_expr->GetChildAt(0));
+                auto col_expr_rev = std::dynamic_pointer_cast<ColumnValueExpression>(last_comp_expr->GetChildAt(1));
+                auto val_expr = std::dynamic_pointer_cast<ConstantValueExpression>(last_comp_expr->GetChildAt(1));
+                auto val_expr_rev = std::dynamic_pointer_cast<ConstantValueExpression>(last_comp_expr->GetChildAt(0));
+                uint32_t now_col_idx{UINT32_MAX};
+                if (col_expr != nullptr && val_expr != nullptr) {
+                  now_col_idx = col_expr->GetColIdx();
+                  pred_keys.emplace_back(val_expr);
+                } else if (col_expr_rev != nullptr && val_expr_rev != nullptr) {
+                  now_col_idx = col_expr_rev->GetColIdx();
+                  pred_keys.emplace_back(val_expr_rev);
                 }
-
-                if (logic_col_expr != nullptr && logic_col_expr->GetColIdx() != col_expr->GetColIdx()) {
+                // 如果此时 column 不同直接放弃优化
+                if (col_idx != now_col_idx) {
                   return optimized_plan;
                 }
                 is_logic_finished = true;
-
               } else {
                 return optimized_plan;
               }
-
-            } else {
-              return optimized_plan;
             }
+            if (is_logic_finished) {
+              break;
+            }
+            new_logic_expr = std::dynamic_pointer_cast<LogicExpression>(new_logic_expr->GetChildAt(0));
 
           } else {
             return optimized_plan;
           }
         }
-      } else {
+      }
+
+      if (col_idx == UINT32_MAX) {
         return optimized_plan;
       }
 
-      const auto table_info = catalog_.GetTable(seq_scan_plan.table_oid_);
-      const auto index_infos = catalog_.GetTableIndexes(table_info->name_);
       // 如果过滤列与索引列是同一列，则可以使用索引扫描
       for (const auto &index_info : index_infos) {
         const auto &columns = index_info->index_->GetKeyAttrs();
-        if (col_expr == nullptr) {
-          return optimized_plan;
-        }
-        std::vector<uint32_t> filter_column{col_expr->GetColIdx()};
+        std::vector<uint32_t> filter_column{col_idx};
         if (filter_column == columns) {
           // create index scan plan
           return std::make_shared<IndexScanPlanNode>(optimized_plan->output_schema_, table_info->oid_,
@@ -136,8 +121,6 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
                                                      std::move(pred_keys));
         }
       }
-    } else {
-      return optimized_plan;
     }
   }
   return optimized_plan;

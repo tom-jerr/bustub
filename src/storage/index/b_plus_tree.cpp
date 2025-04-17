@@ -751,6 +751,9 @@ void BPLUSTREE_TYPE::AdjustRoot(Context *ctx) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  if (IsEmpty()) {
+    return INDEXITERATOR_TYPE(bpm_, std::nullopt, 0);
+  }
   Context ctx;
   FindLeafPage(&ctx, Operation::SEARCH, KeyType(), comparator_, true, false);
   return INDEXITERATOR_TYPE(bpm_, std::move(ctx.read_set_.back()), 0);

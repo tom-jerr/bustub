@@ -21,25 +21,21 @@ namespace bustub {
 // recursive parse and expression
 void ParseAndExpression(const AbstractExpressionRef &expr, std::vector<AbstractExpressionRef> &left_exprs,
                         std::vector<AbstractExpressionRef> &right_exprs) {
-  if (expr->GetType() == ExecExpressionType::Logic) {
-    auto *logic_expr = dynamic_cast<LogicExpression *>(expr.get());
-    if (logic_expr != nullptr) {
-      ParseAndExpression(logic_expr->GetChildAt(0), left_exprs, right_exprs);
-      ParseAndExpression(expr->GetChildAt(1), left_exprs, right_exprs);
-    }
+  auto logic_expr = std::dynamic_pointer_cast<LogicExpression>(expr);
+  auto comp_expr = std::dynamic_pointer_cast<ComparisonExpression>(expr);
+  if (logic_expr != nullptr) {
+    ParseAndExpression(logic_expr->GetChildAt(0), left_exprs, right_exprs);
+    ParseAndExpression(expr->GetChildAt(1), left_exprs, right_exprs);
   }
-  if (expr->GetType() == ExecExpressionType::Comparison) {
-    auto *comp_expr = dynamic_cast<ComparisonExpression *>(expr.get());
-    // 区分每个数据元素是从左侧表还是右侧表提取的，例如 A.id = B.id时，系统需要知道 A.id 和 B.id 分别属于哪个数据源
-    if (comp_expr != nullptr) {
-      auto column_value_expr = dynamic_cast<ColumnValueExpression *>(comp_expr->GetChildAt(0).get());
-      if (column_value_expr->GetTupleIdx() == 0) {
-        left_exprs.emplace_back(comp_expr->GetChildAt(0));
-        right_exprs.emplace_back(comp_expr->GetChildAt(1));
-      } else {
-        left_exprs.emplace_back(comp_expr->GetChildAt(1));
-        right_exprs.emplace_back(comp_expr->GetChildAt(0));
-      }
+  // 区分每个数据元素是从左侧表还是右侧表提取的，例如 A.id = B.id时，系统需要知道 A.id 和 B.id 分别属于哪个数据源
+  if (comp_expr != nullptr) {
+    auto column_value_expr = dynamic_cast<ColumnValueExpression *>(comp_expr->GetChildAt(0).get());
+    if (column_value_expr->GetTupleIdx() == 0) {
+      left_exprs.emplace_back(comp_expr->GetChildAt(0));
+      right_exprs.emplace_back(comp_expr->GetChildAt(1));
+    } else {
+      left_exprs.emplace_back(comp_expr->GetChildAt(1));
+      right_exprs.emplace_back(comp_expr->GetChildAt(0));
     }
   }
 }

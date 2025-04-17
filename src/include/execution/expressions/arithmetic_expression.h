@@ -39,15 +39,13 @@ class ArithmeticExpression : public AbstractExpression {
  public:
   /** Creates a new comparison ExecExpression representing (left comp_type right). */
   ArithmeticExpression(AbstractExpressionRef left, AbstractExpressionRef right, ArithmeticType compute_type)
-      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::INTEGER},
-                           ExecExpressionType::Arithmetic),
+      : AbstractExpression({std::move(left), std::move(right)}, Column{"<val>", TypeId::INTEGER}),
         compute_type_{compute_type} {
     if (GetChildAt(0)->GetReturnType().GetType() != TypeId::INTEGER ||
         GetChildAt(1)->GetReturnType().GetType() != TypeId::INTEGER) {
       throw bustub::NotImplementedException("only support integer for now");
     }
   }
-  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::Arithmetic; }
 
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     Value lhs = GetChildAt(0)->Evaluate(tuple, schema);

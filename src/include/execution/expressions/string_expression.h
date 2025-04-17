@@ -38,14 +38,12 @@ enum class StringExecExpressionType { Lower, Upper };
 class StringExpression : public AbstractExpression {
  public:
   StringExpression(AbstractExpressionRef arg, StringExecExpressionType expr_type)
-      : AbstractExpression({std::move(arg)}, Column{"<val>", TypeId::VARCHAR, 256 /* hardcode max length */},
-                           ExecExpressionType::String),
+      : AbstractExpression({std::move(arg)}, Column{"<val>", TypeId::VARCHAR, 256 /* hardcode max length */}),
         expr_type_{expr_type} {
     if (GetChildAt(0)->GetReturnType().GetType() != TypeId::VARCHAR) {
       BUSTUB_ENSURE(GetChildAt(0)->GetReturnType().GetType() == TypeId::VARCHAR, "unexpected arg");
     }
   }
-  auto GetType() const -> ExecExpressionType override { return ExecExpressionType::String; }
   auto Compute(const std::string &val) const -> std::string {
     // TODO(student): implement upper / lower.
     return {};
