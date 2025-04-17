@@ -36,18 +36,13 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   // Iterate through the table and apply the filter predicate
   while (!iter_->IsEnd()) {
     auto [meta, current_tuple] = iter_->GetTuple();
-    if (!meta.is_deleted_ &&
-        (plan_->filter_predicate_ == nullptr ||
-         !(plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).IsNull() ||
-           !plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).GetAs<bool>()))) {
-      *tuple = current_tuple;
+    ++(*iter_);
+    if (!meta.is_deleted_ && (plan_->filter_predicate_ == nullptr ||
+                              plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).GetAs<bool>())) {
       *rid = current_tuple.GetRid();
-      ++(*iter_);
+      *tuple = current_tuple;
       return true;
     }
-    *rid = RID();
-    ++(*iter_);
-    return true;
   }
   // No more tuples to scan
   LOG_DEBUG("SeqScanExecutor: no more tuples to scan.");

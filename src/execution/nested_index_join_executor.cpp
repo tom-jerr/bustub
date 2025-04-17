@@ -76,8 +76,7 @@ auto NestIndexJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     return false;
   }
   *tuple = outer_tuples_[index_++];
-  *rid = tuple->GetRid();
-  ++index_;
+  *rid = {1, 0};
   return true;
 }
 

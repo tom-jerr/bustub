@@ -68,17 +68,15 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
         }
         results_.emplace_back(Tuple{values, &GetOutputSchema()});
       }
-    } else {
-      if (plan_->GetJoinType() == JoinType::LEFT) {
-        std::vector<Value> values;
-        for (uint32_t i = 0; i < left_schema.GetColumnCount(); i++) {
-          values.emplace_back(tuple->GetValue(&left_schema, i));
-        }
-        for (uint32_t i = 0; i < right_schema.GetColumnCount(); i++) {
-          values.emplace_back(ValueFactory::GetNullValueByType(right_schema.GetColumn(i).GetType()));
-        }
-        results_.emplace_back(Tuple{values, &GetOutputSchema()});
+    } else if (plan_->GetJoinType() == JoinType::LEFT) {
+      std::vector<Value> values;
+      for (uint32_t i = 0; i < left_schema.GetColumnCount(); i++) {
+        values.emplace_back(tuple->GetValue(&left_schema, i));
       }
+      for (uint32_t i = 0; i < right_schema.GetColumnCount(); i++) {
+        values.emplace_back(ValueFactory::GetNullValueByType(right_schema.GetColumn(i).GetType()));
+      }
+      results_.emplace_back(Tuple{values, &GetOutputSchema()});
     }
     // 直到这次的left_tuple与right_tuples匹配的数组都被遍历完才会继续下一次的left_tuple
     if (!results_.empty()) {

@@ -15,7 +15,7 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
   // The Filter Predicate Pushdown has been enabled for you in optimizer.cpp when forcing starter rule
   std::vector<AbstractPlanNodeRef> children;
   std::vector<AbstractExpressionRef> pred_keys;
-  bool is_logic_finished;
+  bool is_logic_finished{false};
   for (const auto &child : plan->GetChildren()) {
     children.emplace_back(OptimizeSeqScanAsIndexScan(child));
   }
@@ -41,6 +41,9 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
             // const_expr = dynamic_cast<const ConstantValueExpression *>(comp_expr->GetChildAt(0).get());
             pred_keys.emplace_back(comp_expr->GetChildAt(0));
           }
+        }
+        else {
+          return optimized_plan;
         }
       } else if (seq_scan_plan.filter_predicate_->GetType() == ExecExpressionType::Logic) {
         // case 2: where v1 = 1 or v1 = 2 or ...;
@@ -122,6 +125,9 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
       // 如果过滤列与索引列是同一列，则可以使用索引扫描
       for (const auto &index_info : index_infos) {
         const auto &columns = index_info->index_->GetKeyAttrs();
+        if (col_expr == nullptr) {
+          return optimized_plan;
+        }
         std::vector<uint32_t> filter_column{col_expr->GetColIdx()};
         if (filter_column == columns) {
           // create index scan plan

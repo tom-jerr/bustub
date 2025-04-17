@@ -98,7 +98,7 @@ class ExecutionEngine {
     RID rid{};
     Tuple tuple{};
     while (executor->Next(&tuple, &rid)) {
-      if (result_set != nullptr && rid.GetPageId() != INVALID_PAGE_ID) {
+      if (result_set != nullptr) {
         result_set->push_back(tuple);
       }
     }
