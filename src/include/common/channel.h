@@ -29,14 +29,14 @@ class Channel {
   ~Channel() = default;
 
   Channel(const Channel &other) = delete;
-  Channel &operator=(const Channel &other) = delete;
+  auto operator=(const Channel &other) -> Channel & = delete;
 
-  Channel(Channel &&other) {
+  Channel(Channel &&other) noexcept {
     std::lock_guard<std::mutex> lk(other.m_);
     q_ = std::move(other.q_);
   }
 
-  Channel &operator=(Channel &&other) {
+  auto operator=(Channel &&other) noexcept -> Channel & {
     if (this != &other) {
       std::lock(m_, other.m_);
       std::lock_guard<std::mutex> lk_this(m_, std::adopt_lock);
