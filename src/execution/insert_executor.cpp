@@ -46,7 +46,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     auto ret = table_info->table_->InsertTuple(TupleMeta{transaction->GetTransactionTempTs(), false}, child_tuple,
                                                exec_ctx_->GetLockManager(), transaction);
     if (!ret.has_value()) {
-      LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
+      // LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
       return false;
     }
     child_rid = ret.value();

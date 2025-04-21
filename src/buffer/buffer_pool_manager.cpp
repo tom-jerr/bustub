@@ -17,6 +17,7 @@
 #include "common/logger.h"
 #include "common/macros.h"
 #include "storage/disk/disk_scheduler.h"
+#include "storage/page/page_guard.h"
 // TODO(LZY): 结合DiskSchdular 实现真正的并发IO
 namespace bustub {
 
@@ -53,6 +54,15 @@ void FrameHeader::Reset() {
   is_dirty_ = false;
   current_page_id_ = INVALID_PAGE_ID;
 }
+// void FrameHeader::SubReset() {
+//   // std::fill(data_.begin(), data_.end(), 0);
+//   std::memset(data_.data(), 0, data_.size());
+//   if (pin_count_.load() > 0) {
+//     pin_count_.fetch_sub(1);
+//   }
+//   is_dirty_ = false;
+//   current_page_id_ = INVALID_PAGE_ID;
+// }
 
 auto FrameHeader::GetPinCount() -> size_t { return pin_count_.load(); }
 
@@ -135,7 +145,7 @@ BufferPoolManager::~BufferPoolManager() = default;
  * @return The page ID of the newly allocated page.
  */
 auto BufferPoolManager::NewPage() -> page_id_t {
-  std::scoped_lock latch(*bpm_latch_);
+  // std::scoped_lock latch(*bpm_latch_);
   page_id_t page_id = next_page_id_.load();
   next_page_id_.fetch_add(1);
   disk_scheduler_->IncreaseDiskSpace(next_page_id_.load());
@@ -169,20 +179,39 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
-  std::unique_lock latch(*bpm_latch_);
   if (page_id < 0 || page_id >= next_page_id_.load()) {
+    // bpm_latch_->unlock();
     return false;
   }
+  bpm_latch_->lock();
   if (auto frame_id = page_table_.find(page_id); frame_id != page_table_.end()) {
     auto frame_idx = frame_id->second;
     LOG_INFO("DeletePage: frame_id: %d, page_id: %d, PINCOUNT: %ld", frame_idx, page_id,
              frames_[frame_idx]->GetPinCount());
     if (frames_[frame_idx]->GetPinCount() > 0) {
+      bpm_latch_->unlock();
       return false;
     }
-    if (frames_[frame_idx]->IsDirty()) {
-      LoadPage(page_id, frame_idx, true);
-    }
+    // if (frames_[frame_idx]->IsDirty()) {
+    //   replacer_->SetEvictable(frame_idx, true);
+    //   frames_[frame_idx]->Reset();
+    //   free_frames_.push_back(frame_idx);
+    //   page_table_.erase(frame_id);
+    //   replacer_->Remove(frame_idx);
+    //   disk_scheduler_->DeallocatePage(page_id);
+
+    //   bpm_latch_->unlock();
+    //   frames_[frame_idx]->rwlatch_.lock();
+    //   auto future = LoadPage(page_id, frame_idx, true);
+    //   future.get();
+
+    //   {
+    //     std::unique_lock latch(flush_mutex_);
+    //     dirty_pages_.erase(page_id);
+    //     flush_cv_.notify_all();
+    //   }
+    //   return true;
+    // }
     // 直接remove，该frame是不可驱逐的，我们需要先将其设置为可驱逐
     replacer_->SetEvictable(frame_idx, true);
     frames_[frame_idx]->Reset();
@@ -191,8 +220,10 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
     replacer_->Remove(frame_idx);
 
     disk_scheduler_->DeallocatePage(page_id);
+    bpm_latch_->unlock();
     return true;
   }
+  bpm_latch_->unlock();
   return true;
 }
 
@@ -236,6 +267,29 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
  * returns `std::nullopt`, otherwise returns a `WritePageGuard` ensuring exclusive and mutable access to a page's data.
  */
 
+auto BufferPoolManager::GetEvictFrame(page_id_t page_id) -> std::optional<frame_id_t> {
+  // replacer 驱逐
+  auto frame_id = replacer_->Evict();
+  // if (!frame_id.has_value()) {
+  //   // LOG_DEBUG("No frame to evict");
+  //   return std::nullopt;
+  // }
+  // auto evict_page_id = frames_[frame_id.value()]->GetCurrPageId();
+  // if (evict_page_id != INVALID_PAGE_ID) {
+  //   page_table_.erase(evict_page_id);
+  //   if (frames_[frame_id.value()]->IsDirty()) {
+  //     // LoadPage(evict_page_id, frame_id.value(), true);
+  //     // LOG_DEBUG("Evict frame content: %s", frames_[frame_id.value()]->GetData());
+  //     dirty_pages_.insert(evict_page_id);
+  //     frames_[frame_id.value()]->SetEvictPageId(evict_page_id);
+  //     // old_page_id = evict_page_id;
+  //     // need_write = true;
+  //   }
+  //   // frames_[frame_id.value()]->Reset();
+  // }
+  return frame_id;
+}
+
 auto BufferPoolManager::GetFreeFrame(page_id_t page_id) -> std::optional<frame_id_t> {
   if (page_id < 0 || page_id >= next_page_id_.load()) {
     return std::nullopt;
@@ -245,56 +299,121 @@ auto BufferPoolManager::GetFreeFrame(page_id_t page_id) -> std::optional<frame_i
     free_frames_.pop_front();
     return frame_id;
   }
-  // replacer 驱逐
-  auto frame_id = replacer_->Evict();
-  if (!frame_id.has_value()) {
-    return std::nullopt;
-  }
-  auto evict_page_id = frames_[frame_id.value()]->GetCurrPageId();
-  if (evict_page_id != INVALID_PAGE_ID) {
-    if (frames_[frame_id.value()]->IsDirty()) {
-      LoadPage(evict_page_id, frame_id.value(), true);
-    }
-    page_table_.erase(evict_page_id);
-    frames_[frame_id.value()]->Reset();
-  }
-  return frame_id;
+
+  return std::nullopt;
 }
 
 auto BufferPoolManager::UpdatePageTable(page_id_t page_id, frame_id_t frame_id) -> void {
   page_table_[page_id] = frame_id;
   replacer_->RecordAccess(frame_id);
-  replacer_->SetEvictable(frame_id, false);
-  frames_[frame_id]->SetCurrPageId(page_id);
-  frames_[frame_id]->FetchAdd();
 }
 
-auto BufferPoolManager::LoadPage(page_id_t page_id, frame_id_t frame_id, bool is_write) -> void {
+auto BufferPoolManager::UpdateReplacer(frame_id_t frame_id) -> void {
+  // bpm_latch_->lock();
+  replacer_->RecordAccess(frame_id);
+  replacer_->SetEvictable(frame_id, false);
+  // bpm_latch_->unlock();
+}
+
+void BufferPoolManager::UpdateFrame(frame_id_t frame_id, page_id_t page_id, bool is_write) {
+  // bpm_latch_->lock();
+  frames_[frame_id]->SetCurrPageId(page_id);
+  // if (is_write) {
+  frames_[frame_id]->FetchAdd();
+  // bpm_latch_->unlock();
+  // } else {
+  // bpm_latch_->unlock();
+  // frames_[frame_id]->FetchAdd();
+  // }
+}
+
+auto BufferPoolManager::LoadPage(page_id_t page_id, frame_id_t frame_id, bool is_write) -> std::future<bool> {
   auto data = is_write ? frames_[frame_id]->GetDataMut() : const_cast<char *>(frames_[frame_id]->GetData());
   auto promise = disk_scheduler_->CreatePromise();
   auto future = promise.get_future();
   DiskRequest r{is_write, data, page_id, std::move(promise)};
   disk_scheduler_->Schedule(std::move(r));
-  future.get();
+  return future;
 }
 
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
   bpm_latch_->lock();
   if (auto frame_id = page_table_.find(page_id); frame_id != page_table_.end()) {
     UpdatePageTable(page_id, frame_id->second);
+    replacer_->SetEvictable(frame_id->second, false);
     bpm_latch_->unlock();
+
+    frames_[frame_id->second]->rwlatch_.lock();
+    UpdateFrame(frame_id->second, page_id, false);
+
     // no addtional IO
     return WritePageGuard(page_id, frames_[frame_id->second], replacer_, bpm_latch_);
   }
-  auto frame = GetFreeFrame(page_id);
-  if (!frame.has_value()) {
+
+  auto free_frame = GetFreeFrame(page_id);
+  if (free_frame.has_value()) {
+    UpdatePageTable(page_id, free_frame.value());
+    replacer_->SetEvictable(free_frame.value(), false);
+    UpdateFrame(free_frame.value(), page_id, false);
+    bpm_latch_->unlock();
+
+    frames_[free_frame.value()]->rwlatch_.lock();
+    return WritePageGuard(page_id, frames_[free_frame.value()], replacer_, bpm_latch_);
+  }
+
+  // not free frame, we need to evict frame
+  auto evict_frame = GetEvictFrame(page_id);
+  if (!evict_frame.has_value()) {
     bpm_latch_->unlock();
     return std::nullopt;
   }
-  UpdatePageTable(page_id, frame.value());
-  LoadPage(page_id, frame.value(), false);
-  bpm_latch_->unlock();  // 获取rw_latch前需要释放bpm_latch
-  return WritePageGuard(page_id, frames_[frame.value()], replacer_, bpm_latch_);
+  page_table_.erase(frames_[evict_frame.value()]->GetCurrPageId());
+  UpdatePageTable(page_id, evict_frame.value());
+
+  bpm_latch_->unlock();
+  frames_[evict_frame.value()]->rwlatch_.lock();
+
+  // if frame is dirty, we should flush frame to disk
+  if (frames_[evict_frame.value()]->IsDirty()) {
+    auto evict_page_id = frames_[evict_frame.value()]->GetCurrPageId();
+    frames_[evict_frame.value()]->SetEvictPageId(evict_page_id);
+    {
+      std::unique_lock latch(flush_mutex_);
+      dirty_pages_.insert(evict_page_id);
+    }
+
+    // flush dirty page
+    auto future = LoadPage(evict_page_id, evict_frame.value(), true);
+    future.get();
+
+    // update meta data
+    frames_[evict_frame.value()]->Reset();
+    UpdateFrame(evict_frame.value(), page_id, false);
+
+    bpm_latch_->lock();
+    replacer_->SetEvictable(evict_frame.value(), false);
+    bpm_latch_->unlock();
+    {
+      std::unique_lock latch(flush_mutex_);
+      dirty_pages_.erase(evict_page_id);
+      flush_cv_.notify_all();
+    }
+  } else {
+    frames_[evict_frame.value()]->Reset();
+    UpdateFrame(evict_frame.value(), page_id, false);
+    bpm_latch_->lock();
+    replacer_->SetEvictable(evict_frame.value(), false);
+    bpm_latch_->unlock();
+  }
+  // 读取 IO 可以并行化
+  {
+    std::unique_lock latch(flush_mutex_);
+    flush_cv_.wait(latch, [this, page_id] { return dirty_pages_.find(page_id) == dirty_pages_.end(); });
+  }
+
+  auto future = LoadPage(page_id, evict_frame.value(), false);
+  future.get();
+  return WritePageGuard(page_id, frames_[evict_frame.value()], replacer_, bpm_latch_);
 }
 
 /**
@@ -326,19 +445,89 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
   bpm_latch_->lock();
   if (auto frame_id = page_table_.find(page_id); frame_id != page_table_.end()) {
     UpdatePageTable(page_id, frame_id->second);
+    UpdateFrame(frame_id->second, page_id, true);
+    replacer_->SetEvictable(frame_id->second, false);
     bpm_latch_->unlock();
+
+    frames_[frame_id->second]->rwlatch_.lock_shared();
+
     // no addtional IO
+    // LOG_DEBUG("ReadPage Duplicate Frame: frame_id: %d, page_id: %d", frame_id->second, page_id);
     return ReadPageGuard(page_id, frames_[frame_id->second], replacer_, bpm_latch_);
   }
-  auto frame = GetFreeFrame(page_id);
-  if (!frame.has_value()) {
+  auto free_frame = GetFreeFrame(page_id);
+  if (free_frame.has_value()) {
+    UpdatePageTable(page_id, free_frame.value());
+    replacer_->SetEvictable(free_frame.value(), false);
+    UpdateFrame(free_frame.value(), page_id, false);
+    bpm_latch_->unlock();
+
+    frames_[free_frame.value()]->rwlatch_.lock_shared();
+    return ReadPageGuard(page_id, frames_[free_frame.value()], replacer_, bpm_latch_);
+  }
+
+  // not free frame, we need to evict frame
+  auto evict_frame = GetEvictFrame(page_id);
+  if (!evict_frame.has_value()) {
     bpm_latch_->unlock();
     return std::nullopt;
   }
-  UpdatePageTable(page_id, frame.value());
-  LoadPage(page_id, frame.value(), false);
-  bpm_latch_->unlock();  // 获取rw_latch前需要释放bpm_latch
-  return ReadPageGuard(page_id, frames_[frame.value()], replacer_, bpm_latch_);
+
+  page_table_.erase(frames_[evict_frame.value()]->GetCurrPageId());
+  UpdatePageTable(page_id, evict_frame.value());
+
+  bpm_latch_->unlock();
+  frames_[evict_frame.value()]->rwlatch_.lock_shared();
+
+  // if frame is dirty, we should flush frame to disk
+  if (frames_[evict_frame.value()]->IsDirty()) {
+    bpm_latch_->lock();
+    // we need double check whether the frame is dirty
+    if (frames_[evict_frame.value()]->IsDirty()) {
+      frames_[evict_frame.value()]->is_dirty_ = false;
+      auto evict_page_id = frames_[evict_frame.value()]->GetCurrPageId();
+      frames_[evict_frame.value()]->SetEvictPageId(evict_page_id);
+      bpm_latch_->unlock();
+      {
+        std::unique_lock latch(flush_mutex_);
+        dirty_pages_.insert(evict_page_id);
+      }
+
+      // flush dirty page
+      auto future = LoadPage(evict_page_id, evict_frame.value(), true);
+      future.get();
+
+      bpm_latch_->lock();
+      // update meta data
+      frames_[evict_frame.value()]->Reset();
+      UpdateFrame(evict_frame.value(), page_id, false);
+
+      replacer_->SetEvictable(evict_frame.value(), false);
+      bpm_latch_->unlock();
+      {
+        std::unique_lock latch(flush_mutex_);
+        dirty_pages_.erase(evict_page_id);
+        flush_cv_.notify_all();
+      }
+    } else {
+      bpm_latch_->lock();
+      frames_[evict_frame.value()]->Reset();
+      UpdateFrame(evict_frame.value(), page_id, false);
+      replacer_->SetEvictable(evict_frame.value(), false);
+      bpm_latch_->unlock();
+    }
+
+  } else {
+    bpm_latch_->lock();
+    frames_[evict_frame.value()]->Reset();
+    UpdateFrame(evict_frame.value(), page_id, false);
+    replacer_->SetEvictable(evict_frame.value(), false);
+    bpm_latch_->unlock();
+  }
+  // 读取 IO 可以并行化
+  auto future = LoadPage(page_id, evict_frame.value(), false);
+  future.get();
+  return ReadPageGuard(page_id, frames_[evict_frame.value()], replacer_, bpm_latch_);
 }
 
 /**
@@ -408,20 +597,37 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @return `false` if the page could not be found in the page table, otherwise `true`.
  */
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
+  LOG_DEBUG("FlushPage: page_id: %d", page_id);
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
-  std::unique_lock latch(*bpm_latch_);
+  bpm_latch_->lock();
   if (page_id < 0 || page_id >= next_page_id_.load()) {
+    bpm_latch_->unlock();
     return false;
   }
   auto flush_frame = page_table_.find(page_id);
   if (flush_frame == page_table_.end()) {
+    bpm_latch_->unlock();
     return false;
   }
   if (frames_[flush_frame->second]->IsDirty()) {
-    LoadPage(page_id, flush_frame->second, true);
+    // frames_[flush_frame->second]->rwlatch_.lock();
+    // bpm_latch_->unlock();
+    auto future = LoadPage(page_id, flush_frame->second, true);
+    future.get();
+    // frames_[flush_frame->second]->Reset();
+    // {
+    //   std::unique_lock latch(flush_mutex_);
+    //   dirty_pages_.erase(page_id);
+    //   flush_cv_.notify_all();
+    //   LOG_INFO("FlushPage: frame_id: %d, page_id: %d, PINCOUNT: %ld", flush_frame->second, page_id,
+    //            frames_[flush_frame->second]->GetPinCount());
+    // }
+    frames_[flush_frame->second]->is_dirty_ = false;
+    // frames_[flush_frame->second]->rwlatch_.unlock();
+  } else {
+    frames_[flush_frame->second]->is_dirty_ = false;
   }
-  // frames_[flush_frame->second]->Reset();
-  frames_[flush_frame->second]->is_dirty_ = false;
+  bpm_latch_->unlock();
   return true;
 }
 
@@ -436,15 +642,25 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
  * TODO(P1): Add implementation
  */
 void BufferPoolManager::FlushAllPages() {
+  LOG_DEBUG("FlushAllPages");
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
-  std::unique_lock latch(*bpm_latch_);
+  bpm_latch_->lock();
   for (auto &[page_id, frame_id] : page_table_) {
     auto frame = frames_[frame_id];
     if (frame->IsDirty()) {
-      LoadPage(page_id, frame_id, true);
+      auto future = LoadPage(page_id, frame_id, true);
+      future.get();
+      // {
+      //   std::unique_lock latch(flush_mutex_);
+      //   dirty_pages_.erase(page_id);
+      //   flush_cv_.notify_all();
+      // }
+      frames_[frame_id]->is_dirty_ = false;
+    } else {
+      frame->is_dirty_ = false;
     }
-    frame->is_dirty_ = false;
   }
+  bpm_latch_->unlock();
 }
 
 /**
@@ -475,8 +691,8 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
   std::scoped_lock latch(*bpm_latch_);
   if (auto frame_id = page_table_.find(page_id); frame_id != page_table_.end()) {
-    LOG_INFO("GetPinCount: frame_id: %d, page_id: %d, PINCOUNT: %ld, DATA: %s", frame_id->second, page_id,
-             frames_[frame_id->second]->GetPinCount(), frames_[frame_id->second]->GetData());
+    // // LOG_INFO("GetPinCount: frame_id: %d, page_id: %d, PINCOUNT: %ld, DATA: %s", frame_id->second, page_id,
+    //          frames_[frame_id->second]->GetPinCount(), frames_[frame_id->second]->GetData());
     return frames_[frame_id->second]->GetPinCount();
   }
   return std::nullopt;

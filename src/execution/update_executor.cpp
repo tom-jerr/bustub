@@ -59,7 +59,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     auto new_meta = TupleMeta{transaction->GetTransactionTempTs(), false};
     new_rid = table_info_->table_->InsertTuple(new_meta, new_tuple);
     if (!new_rid.has_value()) {
-      LOG_DEBUG("Failed to insert new tuple after update, rid: %s", old_rid.ToString().c_str());
+      // LOG_DEBUG("Failed to insert new tuple after update, rid: %s", old_rid.ToString().c_str());
       return false;
     }
     // update the index
@@ -80,7 +80,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   values.emplace_back(ValueFactory::GetIntegerValue(num_update));
   *tuple = Tuple{values, &GetOutputSchema()};  // Return the number of rows updated
   //*rid = new_rid.value();                      // not really uesd
-  is_return_ = true;                           // Mark that we have returned the result for this update
+  is_return_ = true;  // Mark that we have returned the result for this update
   return true;
 }
 

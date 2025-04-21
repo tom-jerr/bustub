@@ -37,7 +37,7 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
       replacer_(std::move(replacer)),
       bpm_latch_(std::move(bpm_latch)),
       is_valid_(true) {
-  frame_->rwlatch_.lock_shared();
+  // frame_->rwlatch_.lock_shared();
 
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
 }
@@ -179,7 +179,7 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
       replacer_(std::move(replacer)),
       bpm_latch_(std::move(bpm_latch)),
       is_valid_(true) {
-  frame_->rwlatch_.lock();
+  // frame_->rwlatch_.lock();
   frame_->is_dirty_ = true;
   // UNIMPLEMENTED("TODO(P1): Add implementation.");
 }
@@ -289,7 +289,7 @@ void WritePageGuard::Drop() {
 
   if (is_valid_) {
     {
-      std::unique_lock latch(*bpm_latch_);
+      std::unique_lock lock(*bpm_latch_);
       frame_->FetchSub();
       if (frame_->GetPinCount() == 0) {
         replacer_->SetEvictable(frame_->frame_id_, true);

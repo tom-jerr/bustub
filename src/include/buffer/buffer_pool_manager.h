@@ -16,8 +16,8 @@
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
-
 #include "buffer/lru_k_replacer.h"
 #include "common/config.h"
 #include "recovery/log_manager.h"
@@ -68,9 +68,12 @@ class FrameHeader {
   auto GetData() const -> const char *;
   auto GetDataMut() -> char *;
   void Reset();
+  // void SubReset();
   auto GetPinCount() -> size_t;
   auto GetCurrPageId() -> page_id_t;
   void SetCurrPageId(page_id_t page_id) { current_page_id_ = page_id; }
+  auto GetEvictPageId() -> page_id_t;
+  void SetEvictPageId(page_id_t page_id) { evict_page_id_ = page_id; }
   auto IsDirty() -> bool;
   void FetchAdd();
   void FetchSub();
@@ -102,6 +105,7 @@ class FrameHeader {
    * else in the buffer pool manager...
    */
   page_id_t current_page_id_{INVALID_PAGE_ID};
+  page_id_t evict_page_id_{INVALID_PAGE_ID};
 };
 
 /**
@@ -160,6 +164,12 @@ class BufferPoolManager {
 
   /** @brief A pointer to the disk scheduler. */
   std::unique_ptr<DiskScheduler> disk_scheduler_;
+  /** @brief A set of dirty pages that need to be flushed to disk. */
+  std::unordered_set<page_id_t> dirty_pages_;
+  /** @brief A mutex to protect the dirty pages set. */
+  std::mutex flush_mutex_;
+  /** @brief A condition variable to notify the flusher thread that there are dirty pages to flush. */
+  std::condition_variable flush_cv_;
 
   /**
    * @brief A pointer to the log manager.
@@ -195,9 +205,13 @@ class BufferPoolManager {
 
   // void SetNewFrame(page_id_t page_id, frame_id_t frame_id);
   auto GetFreeFrame(page_id_t page_id) -> std::optional<frame_id_t>;
-
+  auto GetEvictFrame(page_id_t page_id) -> std::optional<frame_id_t>;
   auto UpdatePageTable(page_id_t page_id, frame_id_t frame_id) -> void;
 
-  auto LoadPage(page_id_t page_id, frame_id_t frame_id, bool is_write) -> void;
+  auto UpdateFrame(frame_id_t frame_id, page_id_t page_id, bool is_write) -> void;
+
+  auto UpdateReplacer(frame_id_t frame_id) -> void;
+
+  auto LoadPage(page_id_t page_id, frame_id_t frame_id, bool is_write) -> std::future<bool>;
 };
 }  // namespace bustub

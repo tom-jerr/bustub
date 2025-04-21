@@ -30,7 +30,7 @@ void SeqScanExecutor::Init() {
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (iter_->IsEnd()) {
     // throw ExecutionException("SeqScanExecutor: table iterator is end.");
-    LOG_DEBUG("SeqScanExecutor: table iterator is end.");
+    // LOG_DEBUG("SeqScanExecutor: table iterator is end.");
     return false;
   }
   // Iterate through the table and apply the filter predicate
@@ -45,7 +45,7 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
   }
   // No more tuples to scan
-  LOG_DEBUG("SeqScanExecutor: no more tuples to scan.");
+  // LOG_DEBUG("SeqScanExecutor: no more tuples to scan.");
   return false;
 }
 

@@ -15,6 +15,7 @@
 #include <filesystem>
 
 #include "buffer/buffer_pool_manager.h"
+#include "common/logger.h"
 #include "gtest/gtest.h"
 #include "storage/page/page_guard.h"
 
@@ -385,7 +386,7 @@ TEST(BufferPoolManagerTest, EvictableTest) {
         while (!signal) {
           cv.wait(lock);
         }
-
+        // printf("Read pid: %d\n", winner_pid);
         // Read the page in shared mode.
         auto read_guard = bpm->ReadPage(winner_pid);
 
@@ -430,7 +431,9 @@ TEST(BufferPoolManagerTest, DeletePageTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
 
-  page_id_t pid1, pid2, pid3;
+  page_id_t pid1;
+  page_id_t pid2;
+  page_id_t pid3;
   pid1 = bpm->NewPage();  // 创建一个新页面
   pid2 = bpm->NewPage();  // 创建另一个新页面
   pid3 = bpm->NewPage();  // 创建第三个新页面

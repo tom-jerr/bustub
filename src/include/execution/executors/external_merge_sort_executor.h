@@ -46,11 +46,11 @@ class SortPage {
     tuple_length_ = tuple_length;
   }
 
-  void WriteTuples(const std::vector<Tuple> &tuples) {
+  void WriteTuples(const std::vector<SortEntry> &tuples) {
     size_ = tuples.size();
-    tuple_length_ = tuples[0].GetLength();
+    tuple_length_ = tuples[0].second.GetLength();
     for (uint32_t i = 0; i < size_; i++) {
-      memcpy(page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuples[i].GetData(), tuple_length_);
+      memcpy(page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuples[i].second.GetData(), tuple_length_);
     }
   }
 
@@ -244,7 +244,7 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   void FlushBufferToRun(std::vector<SortEntry> &buffer, BufferPoolManager *bpm, size_t max_tuples_per_page,
                         size_t tuple_length, std::vector<page_id_t> &pages);
 
-  auto MergeKRuns(std::vector<MergeSortRun> &runs, BufferPoolManager *bpm, size_t max_tuples_per_page,
+  auto MergeKRuns(std::vector<MergeSortRun> runs, BufferPoolManager *bpm, size_t max_tuples_per_page,
                   size_t tuple_length) -> MergeSortRun;
 
  private:
@@ -260,6 +260,7 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   MergeSortRun::Iterator current_iterator_;
   MergeSortRun::Iterator end_iterator_;
   bool is_inited_{false};
+  std::mutex mutex_;
 };
 
 }  // namespace bustub
