@@ -135,7 +135,7 @@ BufferPoolManager::~BufferPoolManager() = default;
  * @return The page ID of the newly allocated page.
  */
 auto BufferPoolManager::NewPage() -> page_id_t {
-  std::scoped_lock latch(*bpm_latch_);
+  // std::scoped_lock latch(*bpm_latch_);
   page_id_t page_id = next_page_id_.load();
   next_page_id_.fetch_add(1);
   disk_scheduler_->IncreaseDiskSpace(next_page_id_.load());
@@ -175,21 +175,22 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   }
   if (auto frame_id = page_table_.find(page_id); frame_id != page_table_.end()) {
     auto frame_idx = frame_id->second;
-    LOG_INFO("DeletePage: frame_id: %d, page_id: %d, PINCOUNT: %ld", frame_idx, page_id,
-             frames_[frame_idx]->GetPinCount());
+    // LOG_INFO("DeletePage: frame_id: %d, page_id: %d, PINCOUNT: %ld", frame_idx, page_id,
+    //          frames_[frame_idx]->GetPinCount());
     if (frames_[frame_idx]->GetPinCount() > 0) {
       return false;
     }
-    if (frames_[frame_idx]->IsDirty()) {
-      LoadPage(page_id, frame_idx, true);
-    }
+
+    // if (frames_[frame_idx]->IsDirty()) {
+    //   LoadPage(page_id, frame_idx, true);
+    // }
     // 直接remove，该frame是不可驱逐的，我们需要先将其设置为可驱逐
     replacer_->SetEvictable(frame_idx, true);
     frames_[frame_idx]->Reset();
     free_frames_.push_back(frame_idx);
     page_table_.erase(frame_id);
     replacer_->Remove(frame_idx);
-
+    // LOG_DEBUG("BPM deallocatePage: page_id: %d", page_id);
     disk_scheduler_->DeallocatePage(page_id);
     return true;
   }
@@ -257,6 +258,7 @@ auto BufferPoolManager::GetFreeFrame(page_id_t page_id) -> std::optional<frame_i
     }
     page_table_.erase(evict_page_id);
     frames_[frame_id.value()]->Reset();
+    disk_scheduler_->DeallocatePage(evict_page_id);  // for sqllogictest 16
   }
   return frame_id;
 }

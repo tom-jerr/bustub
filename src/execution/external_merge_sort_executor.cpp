@@ -14,12 +14,14 @@
 #include <cstddef>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <queue>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 #include "common/config.h"
+#include "common/logger.h"
 #include "common/macros.h"
 #include "execution/execution_common.h"
 #include "execution/plans/sort_plan.h"
@@ -31,30 +33,50 @@ namespace bustub {
 template <size_t K>
 ExternalMergeSortExecutor<K>::ExternalMergeSortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan,
                                                         std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx), plan_(plan), cmp_(plan->GetOrderBy()), child_executor_(std::move(child_executor)) {}
+    : AbstractExecutor(exec_ctx),
+      plan_(plan),
+      cmp_(plan->GetOrderBy()),
+      child_executor_(std::move(child_executor)),
+      thread_pool_(std::make_unique<ThreadPool>(16)) {}
 
 template <size_t K>
-void ExternalMergeSortExecutor<K>::FlushBufferToRun(std::vector<SortEntry> &buffer, BufferPoolManager *bpm,
+void ExternalMergeSortExecutor<K>::FlushBufferToRun(std::vector<SortEntry> buffer, BufferPoolManager *bpm,
                                                     size_t max_tuples_per_page, size_t tuple_length,
-                                                    std::vector<page_id_t> &pages) {
-  std::vector<Tuple> tuples;
-  tuples.reserve(buffer.size());
-  for (const auto &entry : buffer) {
-    tuples.emplace_back(entry.second);
+                                                    std::vector<MergeSortRun> &runs) {
+  std::sort(buffer.begin(), buffer.end(), cmp_);
+  // for (size_t i = 0; i < buffer.size(); i += max_tuples_per_page) {
+  auto page_id = bpm->NewPage();
+  auto new_page = bpm->CheckedWritePage(page_id);
+  auto *sort_page = new_page.value().AsMut<SortPage>();
+  sort_page->Init(max_tuples_per_page, tuple_length);
+  sort_page->WriteTuples({buffer.begin(), buffer.begin() + std::min(max_tuples_per_page, buffer.size())});
+  {
+    std::scoped_lock lock(thread_mutex_);
+    runs.emplace_back(MergeSortRun({new_page->GetPageId()}, bpm));
   }
-  // std::vector<page_id_t> pages;
-  // size_t tuple_length = plan_->OutputSchema().GetInlinedStorageSize();
-  // size_t max_tuples_per_page = (BUSTUB_PAGE_SIZE - SORT_PAGE_HEADER_SIZE) / tuple_length;
-
-  for (size_t i = 0; i < tuples.size(); i += max_tuples_per_page) {
-    auto page_id = bpm->NewPage();
-    auto new_page = bpm->CheckedWritePage(page_id);
-    auto *sort_page = new_page.value().AsMut<SortPage>();
-    sort_page->Init(max_tuples_per_page, tuple_length);
-    sort_page->WriteTuples({tuples.begin() + i, tuples.begin() + std::min(i + max_tuples_per_page, tuples.size())});
-    pages.emplace_back(new_page->GetPageId());
-  }
+  // task_nums_.fetch_add(1);
+  // }
   buffer.clear();
+}
+
+template <size_t K>
+auto ExternalMergeSortExecutor<K>::FlushBufferToRun(std::vector<SortEntry> buffer, BufferPoolManager *bpm,
+                                                    size_t max_tuples_per_page, size_t tuple_length,
+                                                    std::vector<page_id_t> &pages) -> MergeSortRun {
+  std::sort(buffer.begin(), buffer.end(), cmp_);
+  // for (size_t i = 0; i < buffer.size(); i += max_tuples_per_page) {
+  auto page_id = bpm->NewPage();
+  auto new_page = bpm->CheckedWritePage(page_id);
+  auto *sort_page = new_page.value().AsMut<SortPage>();
+  sort_page->Init(max_tuples_per_page, tuple_length);
+  sort_page->WriteTuples({buffer.begin(), buffer.begin() + std::min(max_tuples_per_page, buffer.size())});
+
+  pages.emplace_back(new_page->GetPageId());
+
+  // task_nums_.fetch_add(1);
+  // }
+  buffer.clear();
+  return MergeSortRun({pages, bpm});
 }
 
 template <size_t K>
@@ -68,6 +90,7 @@ void ExternalMergeSortExecutor<K>::Init() {
   child_executor_->Init();
   // 1. 生成初始的mergesortrun
   auto *bpm = exec_ctx_->GetBufferPoolManager();
+  // auto bpm_pool_size = bpm->Size();
   size_t tuple_length = GetOutputSchema().GetInlinedStorageSize();
   size_t max_tuples_per_page = (BUSTUB_PAGE_SIZE - 2 * SORT_PAGE_HEADER_SIZE) / tuple_length;
   std::vector<SortEntry> buffer;
@@ -76,37 +99,51 @@ void ExternalMergeSortExecutor<K>::Init() {
   std::vector<page_id_t> initial_pages;
   Tuple child_tuple{};
   RID child_rid;
+  int task_nums = 0;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     auto sort_key = GenerateSortKey(child_tuple, plan_->GetOrderBy(), GetOutputSchema());
     buffer.emplace_back(SortEntry{sort_key, child_tuple});
     if (buffer.size() == max_tuples_per_page) {
-      std::sort(buffer.begin(), buffer.end(), cmp_);
-      FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, initial_pages);
+      task_nums++;
+      thread_pool_->Enqueue([=]() {
+        FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, runs_);
+        task_nums_.fetch_add(1);
+      });
+      buffer.clear();
+      // FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, initial_pages);
     }
   }
   // 未满一页也需要flush
   if (!buffer.empty()) {
-    std::sort(buffer.begin(), buffer.end(), cmp_);
-    FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, initial_pages);
+    task_nums++;
+    thread_pool_->Enqueue([=]() {
+      FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, runs_);
+      task_nums_.fetch_add(1);
+    });
+    buffer.clear();
   }
-  // 初始时有page num个mergerun
-  for (const auto &pid : initial_pages) {
-    runs_.emplace_back(MergeSortRun({pid}, bpm));
+  // LOG_DEBUG("Initial sort task nums: %d", task_nums);
+  // 同步IO线程，保证所有的page都是排好序的
+  while (task_nums != task_nums_.load()) {
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
+  task_nums_.store(0);
+  // LOG_DEBUG("Finish initial sort task nums: %d", task_nums);
   // 2. merge all runs
+  // int merge_task_nums = 0;
   while (runs_.size() > 1) {
     std::vector<MergeSortRun> new_runs;
-    for (size_t i = 0; i < runs_.size(); i += K) {
-      std::vector<MergeSortRun> runs_to_merge(runs_.begin() + i, runs_.begin() + std::min(i + K, runs_.size()));
-      auto merge_run = MergeKRuns(runs_to_merge, bpm, max_tuples_per_page, tuple_length);
-      new_runs.emplace_back(merge_run);
-    }
-    // delete all old runs
-    for (const auto &run : runs_) {
-      for (const auto &pid : run.GetPages()) {
-        bpm->DeletePage(pid);
+    // 2-way external merge sort
+    for (size_t i = 0; i < runs_.size(); i += 2) {
+      if (i + 1 < runs_.size()) {
+        // auto run1 = runs_[i];
+        // auto run2 = runs_[i + 1];
+        Merge2Runs(runs_[i], runs_[i + 1], bpm, max_tuples_per_page, tuple_length, new_runs);
+      } else {
+        new_runs.emplace_back(runs_[i]);
       }
     }
+
     runs_ = std::move(new_runs);
   }
 
@@ -115,80 +152,88 @@ void ExternalMergeSortExecutor<K>::Init() {
     current_iterator_ = runs_[0].Begin();
     end_iterator_ = runs_[0].End();
     is_inited_ = true;
+  } else {
+    // empty table
+    current_iterator_ = {};
+    end_iterator_ = {};
   }
 }
 
 template <size_t K>
-auto ExternalMergeSortExecutor<K>::MergeKRuns(std::vector<MergeSortRun> &runs, BufferPoolManager *bpm,
-                                              size_t max_tuples_per_page, size_t tuple_length) -> MergeSortRun {
-  // we need 小顶堆
-  auto heap_cmp = [&](const SortEntry &a, const SortEntry &b) {
-    auto order_bys = plan_->GetOrderBy();
-    int index = 0;
-    for (auto &order_by : order_bys) {
-      auto &[type, expr] = order_by;
-      if (type == OrderByType::DESC) {
-        if (a.first[index].CompareLessThan(b.first[index]) == CmpBool::CmpTrue) {
-          return true;
-        }
-        if (b.first[index].CompareLessThan(a.first[index]) == CmpBool::CmpTrue) {
-          return false;
-        }
-      } else {
-        if (a.first[index].CompareLessThan(b.first[index]) == CmpBool::CmpTrue) {
-          return false;
-        }
-        if (b.first[index].CompareLessThan(a.first[index]) == CmpBool::CmpTrue) {
-          return true;
-        }
-      }
-      ++index;
-    }
-    return false;
+void ExternalMergeSortExecutor<K>::Merge2Runs(MergeSortRun run1, MergeSortRun run2, BufferPoolManager *bpm,
+                                              size_t max_tuples_per_page, size_t tuple_length,
+                                              std::vector<MergeSortRun> &new_runs) {
+  auto iter1 = run1.Begin();
+  auto iter2 = run2.Begin();
+  auto end1 = run1.End();
+  auto end2 = run2.End();
+  auto tuple_cmp = [this](const Tuple &a, const Tuple &b) {
+    return cmp_({GenerateSortKey(a, plan_->GetOrderBy(), GetOutputSchema()), a},
+                {GenerateSortKey(b, plan_->GetOrderBy(), GetOutputSchema()), b});
   };
-  std::priority_queue<SortEntry, std::vector<SortEntry>, decltype(heap_cmp)> heap(heap_cmp);
-  auto cmp = [this](const SortKey &a, const SortKey &b) { return cmp_(SortEntry{a, {}}, SortEntry{b, {}}); };
-  std::map<SortKey, std::pair<MergeSortRun::Iterator, MergeSortRun::Iterator>, decltype(cmp)> map_key_iters(cmp);
 
-  // std::vector<MergeSortRun> new_runs;
-  std::vector<SortEntry> buffer;
-  std::vector<page_id_t> merge_pages;
-  // 1. 读取K个runs的第一个tuple
-  for (size_t i = 0; i < K && i < runs.size(); i++) {
-    auto iter = runs[i].Begin();
-    auto sort_key = GenerateSortKey(*iter, plan_->GetOrderBy(), GetOutputSchema());
-    SortEntry entry{sort_key, *iter};
-    heap.push(entry);
-    map_key_iters.insert({sort_key, {runs[i].Begin(), runs[i].End()}});
-  }
-  // 2. 逐个读取
-  while (!heap.empty()) {
-    auto top = heap.top();
-    heap.pop();
-
-    auto [sort_key, _] = top;
-
-    buffer.emplace_back(top);
-
-    if (buffer.size() == max_tuples_per_page) {
-      FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, merge_pages);
+  // std::vector<Tuple> buffer;
+  std::vector<page_id_t> new_pages;
+  auto new_page_id = bpm->NewPage();
+  auto new_page = bpm->CheckedWritePage(new_page_id)->AsMut<SortPage>();
+  new_page->Init(max_tuples_per_page, tuple_length);
+  while (iter1 != end1 && iter2 != end2) {
+    if (tuple_cmp(*iter1, *iter2) > 0) {
+      new_page->WriteTuple(*iter1);
+      ++iter1;
+    } else {
+      new_page->WriteTuple(*iter2);
+      ++iter2;
     }
-    BUSTUB_ASSERT(map_key_iters.find(sort_key) != map_key_iters.end(), "map_key_iters should contain sort_key");
-    auto [iter, end_iter] = map_key_iters[sort_key];
-    // advance iterator
-
-    ++iter;
-    if (iter != end_iter) {
-      sort_key = GenerateSortKey(*iter, plan_->GetOrderBy(), GetOutputSchema());
-      heap.emplace(sort_key, *iter);
-      map_key_iters[sort_key] = {iter, end_iter};
+    if (new_page->GetSize() == max_tuples_per_page) {
+      new_pages.emplace_back(new_page_id);
+      new_page_id = bpm->NewPage();
+      new_page = bpm->CheckedWritePage(new_page_id)->AsMut<SortPage>();
+      new_page->Init(max_tuples_per_page, tuple_length);
+    }
+  }
+  while (iter1 != end1) {
+    new_page->WriteTuple(*iter1);
+    ++iter1;
+    if (new_page->GetSize() == max_tuples_per_page) {
+      new_pages.emplace_back(new_page_id);
+      new_page_id = bpm->NewPage();
+      new_page = bpm->CheckedWritePage(new_page_id)->AsMut<SortPage>();
+      new_page->Init(max_tuples_per_page, tuple_length);
     }
   }
 
-  if (!buffer.empty()) {
-    FlushBufferToRun(buffer, bpm, max_tuples_per_page, tuple_length, merge_pages);
+  while (iter2 != end2) {
+    new_page->WriteTuple(*iter2);
+    ++iter2;
+    if (new_page->GetSize() == max_tuples_per_page) {
+      new_pages.emplace_back(new_page_id);
+      new_page_id = bpm->NewPage();
+      new_page = bpm->CheckedWritePage(new_page_id)->AsMut<SortPage>();
+      new_page->Init(max_tuples_per_page, tuple_length);
+    }
   }
-  return {merge_pages, bpm};
+  // delete old run pages
+  thread_pool_->Enqueue([=]() {
+    for (auto page_id : run1.GetPages()) {
+      bpm->DeletePage(page_id);
+    }
+    for (auto page_id : run2.GetPages()) {
+      bpm->DeletePage(page_id);
+    }
+  });
+  // for (auto page_id : run1.GetPages()) {
+  //   bpm->DeletePage(page_id);
+  // }
+  // for (auto page_id : run2.GetPages()) {
+  //   bpm->DeletePage(page_id);
+  // }
+  if (new_page->GetSize() > 0) {
+    new_pages.emplace_back(new_page_id);
+  }
+  new_runs.emplace_back(MergeSortRun(new_pages, bpm));
+
+  // task_nums_.fetch_add(1);
 }
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::Next(Tuple *tuple, RID *rid) -> bool {

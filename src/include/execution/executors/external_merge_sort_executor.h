@@ -27,7 +27,54 @@
 #define SORT_PAGE_HEADER_SIZE 12
 // #define SORT_PAGE_SLOT_CNT ((BUSTUB_PAGE_SIZE - SORT_PAGE_HEADER_SIZE) / sizeof(Tuple))
 namespace bustub {
+class ThreadPool {
+ public:
+  explicit ThreadPool(size_t threadnum) : thread_num_(threadnum) {
+    for (size_t i = 0; i < thread_num_; i++) {
+      threads_.emplace_back([this]() {
+        while (true) {
+          std::function<void()> task;
+          {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cond_.wait(lock, [this]() { return !tasks_.empty() || stop_; });
+            if (stop_ && tasks_.empty()) {
+              return;
+            }
+            task = std::move(tasks_.front());
+            tasks_.pop();
+          }
+          task();
+        }
+      });
+    }
+  }
+  ~ThreadPool() {
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      stop_ = true;
+    }
+    cond_.notify_all();
+    for (std::thread &thread : threads_) {
+      thread.join();
+    }
+  }
+  template <class F>
+  void Enqueue(F &&f) {
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      tasks_.emplace(std::forward<F>(f));
+    }
+    cond_.notify_one();
+  }
 
+ private:
+  std::vector<std::thread> threads_;
+  std::queue<std::function<void()>> tasks_;
+  std::mutex mutex_;
+  std::condition_variable cond_;
+  bool stop_{false};
+  size_t thread_num_;
+};
 /**
  * Page to hold the intermediate data for external merge sort.
  *
@@ -45,22 +92,26 @@ class SortPage {
     max_size_ = max_size;
     tuple_length_ = tuple_length;
   }
-
-  void WriteTuples(const std::vector<Tuple> &tuples) {
+  void WriteTuple(const Tuple &tuple) {
+    size_ += 1;
+    memcpy(page_start_ + SORT_PAGE_HEADER_SIZE + (size_ - 1) * tuple_length_, tuple.GetData(), tuple_length_);
+  }
+  void WriteTuples(const std::vector<SortEntry> &tuples) {
     size_ = tuples.size();
-    tuple_length_ = tuples[0].GetLength();
+    // tuple_length_ = tuples[0].second.GetLength();
+    // memcpy(page_start_ + SORT_PAGE_HEADER_SIZE, tuples[0].GetData(), tuple_length_);
     for (uint32_t i = 0; i < size_; i++) {
-      memcpy(page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuples[i].GetData(), tuple_length_);
+      memcpy(page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuples[i].second.GetData(), tuple_length_);
     }
   }
 
-  auto ReadTuples() -> std::vector<Tuple> {
-    std::vector<Tuple> tuples;
+  auto ReadTuples(std::vector<Tuple> &tuples) -> void {
+    // std::vector<Tuple> tuples;
+    tuples.clear();
     for (uint32_t i = 0; i < size_; i++) {
-      Tuple tuple{RID(), page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuple_length_};
-      tuples.emplace_back(tuple);
+      tuples.emplace_back(Tuple{RID(), page_start_ + SORT_PAGE_HEADER_SIZE + i * tuple_length_, tuple_length_});
     }
-    return tuples;
+    // return tuples;
   }
   auto GetSize() -> uint32_t { return size_; }
   auto GetMaxSize() -> uint32_t { return max_size_; }
@@ -108,7 +159,8 @@ class MergeSortRun {
         auto page = bpm_->CheckedWritePage(run_->pages_[0]);
         BUSTUB_ASSERT(page.has_value(), "MergeSortRun: Failed to get page");
         auto sort_page = page.value().AsMut<SortPage>();
-        tuples_ = sort_page->ReadTuples();
+        sort_page->ReadTuples(tuples_);
+        page->Drop();
       }
       if (bpm_ == nullptr) {
         tuples_ = {};
@@ -132,8 +184,9 @@ class MergeSortRun {
           auto page = bpm_->CheckedWritePage(run_->pages_[current_page_idx_]);
           BUSTUB_ASSERT(page.has_value(), "MergeSortRun: Failed to get page");
           auto sort_page = page.value().AsMut<SortPage>();
-          tuples_ = sort_page->ReadTuples();
+          sort_page->ReadTuples(tuples_);
           current_tuple_idx_ = 0;
+          page->Drop();
 
         } else {
           current_page_idx_ = -1;  // 已经遍历完所有页
@@ -241,11 +294,13 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); }
 
  private:
-  void FlushBufferToRun(std::vector<SortEntry> &buffer, BufferPoolManager *bpm, size_t max_tuples_per_page,
-                        size_t tuple_length, std::vector<page_id_t> &pages);
+  void FlushBufferToRun(std::vector<SortEntry> buffer, BufferPoolManager *bpm, size_t max_tuples_per_page,
+                        size_t tuple_length, std::vector<MergeSortRun> &runs);
 
-  auto MergeKRuns(std::vector<MergeSortRun> &runs, BufferPoolManager *bpm, size_t max_tuples_per_page,
-                  size_t tuple_length) -> MergeSortRun;
+  void Merge2Runs(MergeSortRun run1, MergeSortRun run2, BufferPoolManager *bpm, size_t max_tuples_per_page,
+                  size_t tuple_length, std::vector<MergeSortRun> &new_runs);
+  auto FlushBufferToRun(std::vector<SortEntry> buffer, BufferPoolManager *bpm, size_t max_tuples_per_page,
+                        size_t tuple_length, std::vector<page_id_t> &pages) -> MergeSortRun;
 
  private:
   /** The sort plan node to be executed */
@@ -260,6 +315,9 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   MergeSortRun::Iterator current_iterator_;
   MergeSortRun::Iterator end_iterator_;
   bool is_inited_{false};
+  std::unique_ptr<ThreadPool> thread_pool_;
+  std::mutex thread_mutex_;
+  std::atomic<int> task_nums_{0};
 };
 
 }  // namespace bustub
