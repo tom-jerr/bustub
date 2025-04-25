@@ -15,6 +15,7 @@
 #include <optional>
 
 #include "catalog/catalog.h"
+#include "catalog/schema.h"
 #include "common/config.h"
 #include "common/macros.h"
 #include "concurrency/transaction.h"
@@ -22,6 +23,8 @@
 #include "execution/expressions/column_value_expression.h"
 #include "fmt/core.h"
 #include "storage/table/table_heap.h"
+#include "storage/table/tuple.h"
+#include "type/integer_type.h"
 #include "type/type.h"
 #include "type/value_factory.h"
 
@@ -149,7 +152,7 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
     auto new_undo_link = undo_link.value_or(UndoLink{});
     auto optional_undo_log = txn_mgr->GetUndoLogOptional(new_undo_link);
     while (optional_undo_log.has_value() && tuple_ts > txn_ts) {
-      undo_logs.push_back(*optional_undo_log);
+      undo_logs.emplace_back(*optional_undo_log);
       tuple_ts = optional_undo_log->ts_;
       new_undo_link = optional_undo_log->prev_version_;
       optional_undo_log = txn_mgr->GetUndoLogOptional(new_undo_link);
@@ -175,7 +178,45 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
  */
 auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple, timestamp_t ts,
                         UndoLink prev_version) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  // UNIMPLEMENTED("not implemented");
+  bool is_delete = target_tuple == nullptr;
+  bool is_insert = base_tuple == nullptr;
+  if (is_insert) {
+    return UndoLog{true, std::vector<bool>(schema->GetColumnCount(), true), Tuple{}, ts, prev_version};
+  }
+  if (is_delete) {
+    // store all tuple in undolog
+    std::vector<bool> modified_fields(schema->GetColumnCount(), true);
+    return UndoLog{false, modified_fields, *base_tuple, ts, prev_version};
+  }
+  if (IsTupleContentEqual(*base_tuple, *target_tuple)) {
+    // no need to generate undolog
+    return UndoLog{is_delete, {}, *base_tuple, ts, prev_version};
+  }
+  // update
+  std::vector<bool> modified_fields(schema->GetColumnCount(), false);
+  for (size_t i = 0; i < schema->GetColumnCount(); i++) {
+    if (!base_tuple->GetValue(schema, i).CompareExactlyEquals(target_tuple->GetValue(schema, i))) {
+      modified_fields[i] = true;
+    }
+  }
+  // reconsturct tuple
+  std::vector<Value> values;
+  std::vector<uint32_t> cols;
+  for (size_t i = 0; i < schema->GetColumnCount(); i++) {
+    auto value = base_tuple->GetValue(schema, i);
+    if (modified_fields[i]) {
+      cols.emplace_back(i);
+      values.emplace_back(value);
+    }
+  }
+  auto undo_schema = Schema::CopySchema(schema, cols);
+
+  Tuple undo_tuple = Tuple{values, &undo_schema};
+  undo_tuple.SetRid(base_tuple->GetRid());
+  // generate undo log
+  UndoLog undo_log = UndoLog{false, modified_fields, undo_tuple, ts, prev_version};
+  return undo_log;
 }
 
 /**
@@ -190,7 +231,83 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
  */
 auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple,
                             const UndoLog &log) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  // UNIMPLEMENTED("not implemented");
+  bool is_delete = target_tuple == nullptr;
+  bool is_insert = base_tuple == nullptr;
+  if (is_insert) {
+    return log;
+  }
+  RID rid = base_tuple->GetRid();
+  if (is_delete) {
+    // need combine two undologs to one undolog
+    // std::vector<bool> modified_fields(schema->GetColumnCount(), true);
+    // return UndoLog{false, modified_fields, *base_tuple, log.ts_, log.prev_version_};
+    return log;
+  }
+  if (IsTupleContentEqual(*base_tuple, *target_tuple)) {
+    // no need to generate undolog
+
+    return log;
+
+    // return UndoLog{is_delete, {}, *base_tuple, log.ts_, log.prev_version_};
+  }
+  // update
+  // 生成当前修改记录
+  if (log.is_deleted_) {
+    return log;
+  }
+  std::vector<Value> new_values;
+  std::vector<bool> modified_fields;
+  for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+    auto old_value = base_tuple->GetValue(schema, i);
+    if (old_value.CompareExactlyEquals(target_tuple->GetValue(schema, i))) {
+      modified_fields.emplace_back(false);
+    } else {
+      modified_fields.emplace_back(true);
+    }
+  }
+  // 获取之前执行的modified记录
+  std::vector<bool> old_modified_fields = log.modified_fields_;
+  auto old_modified_tuple = log.tuple_;
+  // 生成新的modified记录
+  std::vector<bool> new_modified_fields;
+  std::vector<Value> new_modified_values;
+  std::vector<uint32_t> old_cols;
+  std::vector<uint32_t> cols;
+  // 生成old_modified_tuple的schema
+  for (uint32_t i = 0; i < old_modified_fields.size(); ++i) {
+    if (old_modified_fields[i]) {
+      old_cols.emplace_back(i);
+    }
+  }
+  auto old_schema = Schema::CopySchema(schema, old_cols);
+  // 生成new_modified_tuple的schema和modified记录
+  for (uint32_t i = 0, j = 0, k = 0; i < old_modified_fields.size(); ++i) {
+    if (old_modified_fields[i]) {
+      cols.emplace_back(i);
+      new_modified_values.emplace_back(old_modified_tuple.GetValue(&old_schema, j));
+      new_modified_fields.emplace_back(true);
+    } else if (modified_fields[i]) {
+      cols.emplace_back(i);
+      new_modified_values.emplace_back(base_tuple->GetValue(schema, k));
+      new_modified_fields.emplace_back(true);
+    } else {
+      new_modified_fields.emplace_back(false);
+    }
+    if (old_modified_fields[i]) {
+      ++j;
+    }
+    if (modified_fields[i]) {
+      ++k;
+    }
+  }
+  auto undo_schema = Schema::CopySchema(schema, cols);
+
+  Tuple undo_tuple = Tuple{new_modified_values, &undo_schema};
+  undo_tuple.SetRid(base_tuple->GetRid());
+  // generate undo log
+  UndoLog undo_log = UndoLog{false, new_modified_fields, undo_tuple, log.ts_, log.prev_version_};
+  return undo_log;
 }
 
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,

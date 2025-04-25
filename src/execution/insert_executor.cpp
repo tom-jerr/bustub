@@ -13,11 +13,13 @@
 #include <memory>
 #include <vector>
 #include "common/logger.h"
+#include "concurrency/transaction_manager.h"
 #include "execution/executors/values_executor.h"
 #include "execution/plans/values_plan.h"
 #include "storage/table/tuple.h"
 #include "type/value.h"
 #include "type/value_factory.h"
+
 
 #include "execution/executors/insert_executor.h"
 
@@ -47,9 +49,12 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
                                                exec_ctx_->GetLockManager(), transaction);
     if (!ret.has_value()) {
       LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
-      return false;
+      continue;
     }
     child_rid = ret.value();
+
+    exec_ctx_->GetTransactionManager()->UpdateUndoLink(child_rid, std::nullopt, nullptr);
+    exec_ctx_->GetTransaction()->AppendWriteSet(table_info->oid_, child_rid);
 
     for (auto &index : index_vector) {
       index->index_->InsertEntry(

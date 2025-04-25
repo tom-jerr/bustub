@@ -59,6 +59,7 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   // allocate a new commit ts for the transaction
   // commit_ts 是当前时间戳 + 1
   ++last_commit_ts_;
+  timestamp_t commit_ts = last_commit_ts_;
 
   if (txn->state_ != TransactionState::RUNNING) {
     throw Exception("txn not in running state");
@@ -73,6 +74,18 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   }
 
   // TODO(fall2023): Implement the commit logic!
+  auto write_set = txn->GetWriteSets();
+  for (auto &table : write_set) {
+    auto table_info = catalog_->GetTable(table.first);
+    auto rids = table.second;
+    auto table_heap = table_info->table_.get();
+    for (auto &rid : rids) {
+      auto page_guard = table_info->table_->AcquireTablePageWriteLock(rid);
+      auto page = page_guard.AsMut<TablePage>();
+      TupleMeta tuple_meta = table_heap->GetTupleMetaWithLockAcquired(rid, page);
+      page->UpdateTupleMeta({commit_ts, tuple_meta.is_deleted_}, rid);
+    }
+  }
 
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
 
