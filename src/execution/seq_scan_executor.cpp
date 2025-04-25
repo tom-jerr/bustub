@@ -14,6 +14,8 @@
 #include <memory>
 #include "common/config.h"
 #include "common/logger.h"
+#include "concurrency/transaction_manager.h"
+#include "execution/execution_common.h"
 #include "storage/table/table_iterator.h"
 
 namespace bustub {
@@ -28,19 +30,38 @@ void SeqScanExecutor::Init() {
 }
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
-  if (iter_->IsEnd()) {
-    // throw ExecutionException("SeqScanExecutor: table iterator is end.");
-    LOG_DEBUG("SeqScanExecutor: table iterator is end.");
-    return false;
-  }
+  auto schema = GetOutputSchema();
+  auto *txn_mgr = exec_ctx_->GetTransactionManager();
+  auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
+  auto txn = exec_ctx_->GetTransaction();
+
   // Iterate through the table and apply the filter predicate
   while (!iter_->IsEnd()) {
-    auto [meta, current_tuple] = iter_->GetTuple();
+    *rid = iter_->GetRID();
+
+    auto page_guard = table_info->table_->AcquireTablePageReadLock(*rid);
+    auto page = page_guard.As<TablePage>();
+    auto [meta, tuple_data] = table_info->table_->GetTupleWithLockAcquired(*rid, page);
+    *tuple = tuple_data;
+
     ++(*iter_);
+    // get undo logs if tuple_ts > txn_ts
+    auto undolink = txn_mgr->GetUndoLink(*rid);
+    auto undologs = CollectUndoLogs(*rid, meta, *tuple, undolink, txn, txn_mgr);
+    if (undologs.has_value()) {
+      // reconstruct tuple
+      auto new_tuple = ReconstructTuple(&schema, *tuple, meta, undologs.value());
+      if (!new_tuple.has_value()) {
+        continue;
+      }
+      meta.is_deleted_ = false;
+      *tuple = *new_tuple;
+    } else {
+      continue;
+    }
+
     if (!meta.is_deleted_ && (plan_->filter_predicate_ == nullptr ||
-                              plan_->filter_predicate_->Evaluate(&current_tuple, GetOutputSchema()).GetAs<bool>())) {
-      *rid = current_tuple.GetRid();
-      *tuple = current_tuple;
+                              plan_->filter_predicate_->Evaluate(tuple, GetOutputSchema()).GetAs<bool>())) {
       return true;
     }
   }

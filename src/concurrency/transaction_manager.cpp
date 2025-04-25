@@ -79,6 +79,7 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   // TODO(fall2023): set commit timestamp + update last committed timestamp here.
   txn->commit_ts_ = last_commit_ts_.load();
   txn->state_ = TransactionState::COMMITTED;
+  // txn_map_[txn->GetTransactionId()] = nullptr;
   running_txns_.UpdateCommitTs(txn->commit_ts_);
   running_txns_.RemoveTxn(txn->read_ts_);
 
