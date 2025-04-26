@@ -12,8 +12,10 @@
 #include <memory>
 #include <optional>
 
+#include "common/config.h"
 #include "common/logger.h"
 #include "common/macros.h"
+#include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
 #include "execution/execution_common.h"
 #include "execution/executors/update_executor.h"
@@ -42,33 +44,14 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     return false;
   }
   auto index_vector = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
-  auto transaction = exec_ctx_->GetTransaction();
+  // auto transaction = exec_ctx_->GetTransaction();
   TableHeap *table_heap = table_info_->table_.get();
   auto schema = table_info_->schema_;
   Tuple old_tuple{};
   RID old_rid;
-  std::optional<RID> new_rid;
+  // std::optional<RID> new_rid;
   int num_update = 0;
   while (child_executor_->Next(&old_tuple, &old_rid)) {
-    /* project3 need */
-    // // delete the old tuple
-    // auto meta = TupleMeta{transaction->GetTransactionTempTs(), true};  // Mark the old tuple as deleted
-    // table_info_->table_->UpdateTupleMeta(meta, old_rid);               // Mark the old tuple as deleted
-
-    // // insert new tuple
-    // std::vector<Value> tuple_values{};
-    // // values.reserve(GetOutputSchema().GetColumnCount());
-    // // only filter plan and behind its schema is the table schema
-    // for (const auto &expr : plan_->target_expressions_) {
-    //   tuple_values.emplace_back(expr->Evaluate(&old_tuple, child_executor_->GetOutputSchema()));
-    // }
-    // auto new_tuple = Tuple{tuple_values, &child_executor_->GetOutputSchema()};
-    // auto new_meta = TupleMeta{transaction->GetTransactionTempTs(), false};
-    // new_rid = table_info_->table_->InsertTuple(new_meta, new_tuple);
-    // if (!new_rid.has_value()) {
-    //   LOG_DEBUG("Failed to insert new tuple after update, rid: %s", old_rid.ToString().c_str());
-    //   return false;
-    // }
     auto tuple_meta = table_info_->table_->GetTupleMeta(old_rid);
     auto txn = exec_ctx_->GetTransaction();
     auto txn_mgr = exec_ctx_->GetTransactionManager();
@@ -91,51 +74,49 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       // generate new tuple
       // this is first generate
       auto pre_link = txn_mgr->GetUndoLink(old_rid);
-      auto undo_log =
-          GenerateNewUndoLog(&schema, &old_tuple, &new_tuple, txn->GetTransactionTempTs(), pre_link.value());
+      // 如果是第一次insert的话，也存在没有undolink的可能
+      if (!pre_link.has_value()) {
+        // 说明是insert后第一次修改，因为Insert没有建立undolog，所以我们需要构建新的版本链并挂载生成的undolog
+        UndoLink undo_link{INVALID_TXN_ID, 0};
+        txn_mgr->UpdateUndoLink(old_rid, undo_link);
+        pre_link = txn_mgr->GetUndoLink(old_rid);
+        BUSTUB_ASSERT(pre_link.has_value(), "生成undolink失败");
+      }
+      auto undo_log = GenerateNewUndoLog(&schema, &old_tuple, &new_tuple, tuple_meta.ts_, pre_link.value());
       tuple_meta.is_deleted_ = undo_log.is_deleted_;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
 
+      UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
+      txn->AppendUndoLog(undo_log);
       txn->AppendWriteSet(plan_->GetTableOid(), old_rid);
-
-      UpdateTupleAndUndoLink(txn_mgr, old_rid, pre_link, table_heap, txn, tuple_meta, new_tuple);
+      UpdateTupleAndUndoLink(txn_mgr, old_rid, new_undo_link, table_heap, txn, tuple_meta, new_tuple);
     } else {
+      // 事务自己对自己修改过的tuple再次修改
       BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "后面的事务修改了前面的事务");
+
       // combine undolog
       auto old_link = txn_mgr->GetUndoLink(old_rid);
-      auto old_undo_log = txn_mgr->GetUndoLogOptional(old_link.value());
-      if (old_undo_log.has_value()) {
-        auto new_undo_log = GenerateUpdatedUndoLog(&schema, &old_tuple, &new_tuple, old_undo_log.value());
-
+      if (!old_link.has_value()) {
+        // 直接修改tuple
         auto page_write_guard = table_heap->AcquireTablePageWriteLock(old_rid);
         auto page = page_write_guard.AsMut<TablePage>();
         table_heap->UpdateTupleInPlaceWithLockAcquired(tuple_meta, new_tuple, old_rid, page);
+        num_update++;
 
-        txn->ModifyUndoLog(old_link->prev_log_idx_, new_undo_log);
       } else {
-        // last op is insert
-        auto undo_log =
-            GenerateNewUndoLog(&schema, &old_tuple, &new_tuple, txn->GetTransactionTempTs(), old_link.value());
-        tuple_meta.is_deleted_ = undo_log.is_deleted_;
-        tuple_meta.ts_ = txn->GetTransactionTempTs();
+        auto old_undo_log = txn_mgr->GetUndoLogOptional(old_link.value());
+        BUSTUB_ASSERT(old_undo_log.has_value(), "Update的undo_log无值");
+        if (old_undo_log.has_value()) {
+          auto new_undo_log = GenerateUpdatedUndoLog(&schema, &old_tuple, &new_tuple, old_undo_log.value());
 
-        txn->AppendWriteSet(plan_->GetTableOid(), old_rid);
+          auto page_write_guard = table_heap->AcquireTablePageWriteLock(old_rid);
+          auto page = page_write_guard.AsMut<TablePage>();
+          table_heap->UpdateTupleInPlaceWithLockAcquired(tuple_meta, new_tuple, old_rid, page);
 
-        UpdateTupleAndUndoLink(txn_mgr, old_rid, old_link, table_heap, txn, tuple_meta, new_tuple);
+          txn->ModifyUndoLog(old_link->prev_log_idx_, new_undo_log);
+        }
       }
     }
-
-    // update the index
-    // for (auto &index_info : index_vector) {
-    //   index_info->index_->InsertEntry(
-    //       new_tuple.KeyFromTuple(table_info_->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()),
-    //       new_rid.value(), transaction);
-
-    //   index_info->index_->DeleteEntry(
-    //       old_tuple.KeyFromTuple(table_info_->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()),
-    //       old_rid, transaction);
-    // }
-    // old_rid = new_rid.value();  // Update the old rid to the new rid
     num_update++;
   }
   std::vector<Value> values{};

@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <memory>
+#include <optional>
 #include <vector>
 #include "common/logger.h"
 #include "concurrency/transaction_manager.h"
@@ -19,7 +20,6 @@
 #include "storage/table/tuple.h"
 #include "type/value.h"
 #include "type/value_factory.h"
-
 
 #include "execution/executors/insert_executor.h"
 

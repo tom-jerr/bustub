@@ -33,7 +33,7 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   auto schema = GetOutputSchema();
   auto *txn_mgr = exec_ctx_->GetTransactionManager();
   auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
-  auto txn = exec_ctx_->GetTransaction();
+  //  auto txn = exec_ctx_->GetTransaction();
 
   // Iterate through the table and apply the filter predicate
   while (!iter_->IsEnd()) {
@@ -45,23 +45,50 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     *tuple = tuple_data;
 
     ++(*iter_);
-    // get undo logs if tuple_ts > txn_ts
-    auto undolink = txn_mgr->GetUndoLink(*rid);
-    auto undologs = CollectUndoLogs(*rid, meta, *tuple, undolink, txn, txn_mgr);
-    if (undologs.has_value()) {
-      // reconstruct tuple
-      auto new_tuple = ReconstructTuple(&schema, *tuple, meta, undologs.value());
-      if (!new_tuple.has_value()) {
+    auto txn = exec_ctx_->GetTransaction();
+    auto tuple_ts = meta.ts_;
+    auto txn_ts = txn->GetReadTs();
+
+    if (tuple_ts > txn_ts && tuple_ts != txn->GetTransactionId()) {
+      std::vector<UndoLog> undo_logs;
+      std::optional<UndoLink> undo_link;
+      std::optional<UndoLog> undo_log;
+      // 循环获取undo_log，直到undo_log的timestamp小于等于txn的timestamp
+      undo_link = txn_mgr->GetUndoLink(*rid);
+      if (undo_link.has_value()) {
+        auto min_ts = tuple_ts;
+        while (undo_link->IsValid()) {
+          undo_log = txn_mgr->GetUndoLogOptional(undo_link.value());
+          if (!undo_log.has_value()) {
+            break;
+          }
+          min_ts = undo_log->ts_;
+          undo_logs.emplace_back(*undo_log);
+          if (min_ts <= txn_ts) {
+            break;
+          }
+          undo_link = undo_log->prev_version_;
+        }
+        if (min_ts > txn_ts) {
+          // goto next tuple
+          continue;
+        }
+
+        // ReconstructTuple tuple
+        auto new_tuple = ReconstructTuple(&schema, *tuple, meta, undo_logs);
+        if (!new_tuple.has_value()) {
+          // goto next tuple
+          continue;
+        }
+        meta.is_deleted_ = false;
+        *tuple = *new_tuple;
+      } else {
+        // 不应该看见tuple
         continue;
       }
-      meta.is_deleted_ = false;
-      *tuple = *new_tuple;
-    } else {
-      continue;
     }
-
-    if (!meta.is_deleted_ && (plan_->filter_predicate_ == nullptr ||
-                              plan_->filter_predicate_->Evaluate(tuple, GetOutputSchema()).GetAs<bool>())) {
+    if (!meta.is_deleted_ &&
+        (plan_->filter_predicate_ == nullptr || plan_->filter_predicate_->Evaluate(tuple, schema).GetAs<bool>())) {
       return true;
     }
   }

@@ -182,12 +182,14 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   bool is_delete = target_tuple == nullptr;
   bool is_insert = base_tuple == nullptr;
   if (is_insert) {
-    return UndoLog{true, std::vector<bool>(schema->GetColumnCount(), true), Tuple{}, ts, prev_version};
+    UndoLink undolink{.prev_txn_ = prev_version.prev_txn_, .prev_log_idx_ = prev_version.prev_log_idx_};
+    return UndoLog{true, std::vector<bool>(schema->GetColumnCount(), true), Tuple{}, ts, undolink};
   }
   if (is_delete) {
     // store all tuple in undolog
+    UndoLink undolink{.prev_txn_ = prev_version.prev_txn_, .prev_log_idx_ = prev_version.prev_log_idx_};
     std::vector<bool> modified_fields(schema->GetColumnCount(), true);
-    return UndoLog{false, modified_fields, *base_tuple, ts, prev_version};
+    return UndoLog{false, modified_fields, *base_tuple, ts, undolink};
   }
   if (IsTupleContentEqual(*base_tuple, *target_tuple)) {
     // no need to generate undolog
@@ -214,8 +216,9 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
 
   Tuple undo_tuple = Tuple{values, &undo_schema};
   undo_tuple.SetRid(base_tuple->GetRid());
+  UndoLink undolink{.prev_txn_ = prev_version.prev_txn_, .prev_log_idx_ = prev_version.prev_log_idx_};
   // generate undo log
-  UndoLog undo_log = UndoLog{false, modified_fields, undo_tuple, ts, prev_version};
+  UndoLog undo_log = UndoLog{false, modified_fields, undo_tuple, ts, undolink};
   return undo_log;
 }
 
@@ -237,7 +240,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   if (is_insert) {
     return log;
   }
-  RID rid = base_tuple->GetRid();
+  // RID rid = base_tuple->GetRid();
   if (is_delete) {
     // need combine two undologs to one undolog
     // std::vector<bool> modified_fields(schema->GetColumnCount(), true);
@@ -373,6 +376,30 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
         undo_link = undo_log->prev_version_;
       }
     }
+    // // 输出最后一个undolog的内容
+    // auto undo_log = txn_mgr->GetUndoLogOptional(undo_link);
+    // if (!undo_log.has_value()) {
+    //   break;
+    // }
+    // auto old_tuple = ReconstructTuple(&table_info->schema_, tuple, tuple_meta, {*undo_log});
+    // // auto txn_id = undo_log->ts_;
+    // if (old_tuple.has_value()) {
+    //   tuple = old_tuple.value();
+    //   tuple_meta = TupleMeta{undo_log->ts_, undo_log->is_deleted_};
+    //   bool is_deleted = undo_log->is_deleted_;
+    //   if (!is_deleted) {
+    //     fmt::println(stderr, "  txn{}, tuple={}, ts={}", undo_link.prev_txn_ ^ (TXN_START_ID),
+    //                  tuple.ToString(&table_info->schema_), tuple_meta.ts_);
+    //   } else {
+    //     fmt::println(stderr, "  txn{}, <del>, ts={}", undo_link.prev_txn_ ^ (TXN_START_ID), undo_log->ts_);
+    //   }
+
+    //   undo_link = undo_log->prev_version_;
+    // } else {
+    //   fmt::println(stderr, "  txn{}, <del>, ts={} ", undo_link.prev_txn_ ^ (TXN_START_ID), undo_log->ts_);
+    //   tuple_meta = TupleMeta{undo_log->ts_, true};
+    //   undo_link = undo_log->prev_version_;
+    // }
   }
 
   // fmt::println(
