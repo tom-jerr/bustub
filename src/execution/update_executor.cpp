@@ -52,17 +52,14 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   // std::optional<RID> new_rid;
   int num_update = 0;
   while (child_executor_->Next(&old_tuple, &old_rid)) {
-    auto tuple_meta = table_info_->table_->GetTupleMeta(old_rid);
     auto txn = exec_ctx_->GetTransaction();
     auto txn_mgr = exec_ctx_->GetTransactionManager();
-
+    auto [tuple_meta, old_tuple, pre_link] = GetTupleAndUndoLink(txn_mgr, table_heap, old_rid);
     // whether has write-write confilict
-    if ((tuple_meta.ts_ > TXN_START_ID && tuple_meta.ts_ != txn->GetTransactionId()) ||
-        (tuple_meta.ts_ > txn->GetReadTs() && tuple_meta.ts_ != txn->GetTransactionId())) {
-      txn->SetTainted();
-      throw ExecutionException("write-write conflict");
-    }
-
+    CheckWriteWriteConflict(txn, tuple_meta);
+    auto checker = [txn](const TupleMeta &meta, const Tuple &tuple, RID rid, std::optional<UndoLink> pre_link) -> bool {
+      return !((meta.ts_ > TXN_START_ID || meta.ts_ > txn->GetReadTs()) && meta.ts_ != txn->GetTransactionId());
+    };
     std::vector<Value> new_values;
     new_values.reserve(plan_->target_expressions_.size());
     for (auto &expr : plan_->target_expressions_) {
@@ -74,50 +71,44 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     if (tuple_meta.ts_ <= txn->GetReadTs()) {
       // generate new tuple
       // this is first generate
-      auto pre_link = txn_mgr->GetUndoLink(old_rid);
-      // 如果是第一次insert的话，也存在没有undolink的可能
-      if (!pre_link.has_value()) {
-        // 说明是insert后第一次修改，因为Insert没有建立undolog，所以我们需要构建新的版本链并挂载生成的undolog
-        UndoLink undo_link{INVALID_TXN_ID, 0};
-        txn_mgr->UpdateUndoLink(old_rid, undo_link);
-        pre_link = txn_mgr->GetUndoLink(old_rid);
-        BUSTUB_ASSERT(pre_link.has_value(), "生成undolink失败");
-      }
+      BUSTUB_ASSERT(pre_link.has_value(), "UpdateExecutor: undolink is null");
       auto undo_log = GenerateNewUndoLog(&schema, &old_tuple, &new_tuple, tuple_meta.ts_, pre_link.value());
+
       tuple_meta.is_deleted_ = false;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
 
       UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
+
+      bool success =
+          UpdateTupleAndUndoLink(txn_mgr, old_rid, new_undo_link, table_heap, txn, tuple_meta, new_tuple, checker);
+      if (!success) {
+        txn->SetTainted();
+        throw ExecutionException("update conflict");
+      }
       txn->AppendUndoLog(undo_log);
       txn->AppendWriteSet(plan_->GetTableOid(), old_rid);
-      UpdateTupleAndUndoLink(txn_mgr, old_rid, new_undo_link, table_heap, txn, tuple_meta, new_tuple);
+
     } else {
       // 事务自己对自己修改过的tuple再次修改
       BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "UpdateExecutor: 后面的事务修改了前面的事务");
 
       // combine undolog
-      auto old_link = txn_mgr->GetUndoLink(old_rid);
-      if (!old_link.has_value()) {
-        tuple_meta.is_deleted_ = false;
-        tuple_meta.ts_ = txn->GetTransactionTempTs();
-        // 直接修改tuple
-        auto page_write_guard = table_heap->AcquireTablePageWriteLock(old_rid);
-        auto page = page_write_guard.AsMut<TablePage>();
-        table_heap->UpdateTupleInPlaceWithLockAcquired(tuple_meta, new_tuple, old_rid, page);
-      } else {
-        auto old_undo_log = txn_mgr->GetUndoLogOptional(old_link.value());
-        BUSTUB_ASSERT(old_undo_log.has_value(), "Update的undo_log无值");
-        if (old_undo_log.has_value()) {
-          auto new_undo_log = GenerateUpdatedUndoLog(&schema, &old_tuple, &new_tuple, old_undo_log.value());
-          tuple_meta.is_deleted_ = false;
-          tuple_meta.ts_ = txn->GetTransactionTempTs();
+      BUSTUB_ASSERT(pre_link.has_value(), "Update的undolink无值");
+      auto old_undo_log = txn_mgr->GetUndoLogOptional(pre_link.value());
+      UndoLog new_undo_log;
+      if (old_undo_log.has_value()) {
+        // 否则更新成一个undolog
+        new_undo_log = GenerateUpdatedUndoLog(&schema, &old_tuple, &new_tuple, old_undo_log.value());
+        txn->ModifyUndoLog(pre_link->prev_log_idx_, new_undo_log);
+      }
 
-          auto page_write_guard = table_heap->AcquireTablePageWriteLock(old_rid);
-          auto page = page_write_guard.AsMut<TablePage>();
-          table_heap->UpdateTupleInPlaceWithLockAcquired(tuple_meta, new_tuple, old_rid, page);
-
-          txn->ModifyUndoLog(old_link->prev_log_idx_, new_undo_log);
-        }
+      tuple_meta.is_deleted_ = false;
+      tuple_meta.ts_ = txn->GetTransactionTempTs();
+      bool success =
+          UpdateTupleAndUndoLink(txn_mgr, old_rid, pre_link, table_heap, txn, tuple_meta, new_tuple, checker);
+      if (!success) {
+        txn->SetTainted();
+        throw ExecutionException("update conflict");
       }
     }
     num_update++;

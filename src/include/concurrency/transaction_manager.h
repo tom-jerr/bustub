@@ -138,5 +138,5 @@ auto UpdateTupleAndUndoLink(
  */
 auto GetTupleAndUndoLink(TransactionManager *txn_mgr, TableHeap *table_heap, RID rid)
     -> std::tuple<TupleMeta, Tuple, std::optional<UndoLink>>;
-
+void CheckWriteWriteConflict(Transaction *txn, const TupleMeta &meta);
 }  // namespace bustub

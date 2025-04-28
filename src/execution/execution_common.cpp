@@ -183,13 +183,13 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   bool is_insert = base_tuple == nullptr;
   if (is_insert) {
     UndoLink undolink{.prev_txn_ = prev_version.prev_txn_, .prev_log_idx_ = prev_version.prev_log_idx_};
-    return UndoLog{true, std::vector<bool>(schema->GetColumnCount(), true), Tuple{}, ts, undolink};
+    return UndoLog{true, std::vector<bool>(schema->GetColumnCount(), false), {}, ts, undolink};
   }
   if (is_delete) {
     // store all tuple in undolog
     UndoLink undolink{.prev_txn_ = prev_version.prev_txn_, .prev_log_idx_ = prev_version.prev_log_idx_};
-    std::vector<bool> modified_fields(schema->GetColumnCount(), true);
-    return UndoLog{false, modified_fields, *base_tuple, ts, undolink};
+
+    return UndoLog{false, std::vector<bool>(schema->GetColumnCount(), true), *base_tuple, ts, undolink};
   }
   if (IsTupleContentEqual(*base_tuple, *target_tuple)) {
     // no need to generate undolog
@@ -238,13 +238,15 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   bool is_delete = target_tuple == nullptr;
   bool is_insert = base_tuple == nullptr;
   if (is_insert) {
+    // 这里只应该是delete后重新插入才会有这个情况
     return log;
   }
   // RID rid = base_tuple->GetRid();
   if (is_delete) {
     // need combine two undologs to one undolog
-    // std::vector<bool> modified_fields(schema->GetColumnCount(), true);
-    // return UndoLog{false, modified_fields, *base_tuple, log.ts_, log.prev_version_};
+
+    // return UndoLog{false, std::vector<bool>(schema->GetColumnCount(), true), *base_tuple, log.ts_,
+    // log.prev_version_};
     return log;
   }
   if (IsTupleContentEqual(*base_tuple, *target_tuple)) {

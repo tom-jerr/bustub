@@ -127,5 +127,10 @@ void TransactionManager::GarbageCollection() {
     }
   }
 }
-
+void CheckWriteWriteConflict(Transaction *txn, const TupleMeta &meta) {
+  if ((meta.ts_ > TXN_START_ID || meta.ts_ > txn->GetReadTs()) && meta.ts_ != txn->GetTransactionId()) {
+    txn->SetTainted();
+    throw ExecutionException("write-write conflict");
+  }
+}
 }  // namespace bustub

@@ -11,6 +11,10 @@
 //===----------------------------------------------------------------------===//
 #include "execution/executors/index_scan_executor.h"
 #include "common/logger.h"
+#include "common/macros.h"
+#include "concurrency/transaction.h"
+#include "concurrency/transaction_manager.h"
+#include "execution/execution_common.h"
 #include "execution/expressions/constant_value_expression.h"
 #include "storage/index/b_plus_tree_index.h"
 #include "type/value_factory.h"
@@ -59,10 +63,14 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (plan_->pred_keys_.empty()) {
     return FullScan(tuple, rid);
   }
+  auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_);
+  auto index_info = exec_ctx_->GetCatalog()->GetIndex(plan_->index_oid_);
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto key_schema = index_info->key_schema_;
+
   while (index_ < plan_->pred_keys_.size()) {
     values.emplace_back(plan_->pred_keys_[index_]->Evaluate(nullptr, plan_->OutputSchema()));
     ++index_;
-    auto key_schema = exec_ctx_->GetCatalog()->GetIndex(plan_->GetIndexOid())->key_schema_;
     auto new_tuple = Tuple{values, &key_schema};
     b_tree_->ScanKey(new_tuple, &result, exec_ctx_->GetTransaction());
     if (result.empty()) {
@@ -70,21 +78,42 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       values.clear();
       continue;
     }
-    auto temp_rid = result[0];
-    auto [meta_, tuple_] = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_)->table_->GetTuple(temp_rid);
-    if (meta_.is_deleted_) {
-      // *rid = RID();
-      return true;
+    *rid = result[0];
+    auto [meta_, tuple_, pre_link] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), *rid);
+    *tuple = tuple_;
+    auto txn = exec_ctx_->GetTransaction();
+    auto txn_ts = txn->GetReadTs();
+    auto tuple_ts = meta_.ts_;
+    if (tuple_ts > txn_ts && tuple_ts != txn->GetTransactionId()) {
+      // 回退
+      std::vector<UndoLog> undo_logs;
+      BUSTUB_ASSERT(pre_link.has_value(), "IndexScanExecutor: undolink is null");
+      auto undo_log = txn_mgr->GetUndoLogOptional(pre_link.value());
+      while (undo_log.has_value() && tuple_ts > txn_ts) {
+        undo_logs.emplace_back(*undo_log);
+        tuple_ts = undo_log->ts_;
+        pre_link = undo_log->prev_version_;
+        undo_log = txn_mgr->GetUndoLogOptional(pre_link.value());
+      }
+
+      if (tuple_ts > txn_ts) {
+        // LOG_DEBUG("IndexScanExecutor: This key does not exist");
+        return false;
+      }
+      auto recon_tuple = ReconstructTuple(&table_info->schema_, tuple_, meta_, undo_logs);
+      if (!recon_tuple.has_value()) {
+        return false;
+      }
+      *tuple = recon_tuple.value();
     }
+
     if (plan_->filter_predicate_) {
-      auto value = plan_->filter_predicate_->Evaluate(&tuple_, GetOutputSchema());
+      auto value = plan_->filter_predicate_->Evaluate(tuple, GetOutputSchema());
       if (value.IsNull() || !value.GetAs<bool>()) {
         // *rid = RID();
         return true;
       }
     }
-    *tuple = tuple_;
-    *rid = tuple_.GetRid();
     return true;
   }
   LOG_DEBUG("IndexScanExecutor: No more tuples to scan");
