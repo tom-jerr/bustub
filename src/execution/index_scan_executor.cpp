@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "execution/executors/index_scan_executor.h"
+#include "common/config.h"
 #include "common/logger.h"
 #include "common/macros.h"
 #include "concurrency/transaction.h"
@@ -80,10 +81,17 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
     *rid = result[0];
     auto [meta_, tuple_, pre_link] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), *rid);
-    *tuple = tuple_;
     auto txn = exec_ctx_->GetTransaction();
     auto txn_ts = txn->GetReadTs();
     auto tuple_ts = meta_.ts_;
+    if (meta_.is_deleted_ && ((txn_ts >= tuple_ts && tuple_ts < TXN_START_ID) ||
+                              (tuple_ts > TXN_START_ID && tuple_ts == txn->GetTransactionId()))) {
+      // 说明tuple被删除了
+      values.clear();
+      continue;
+    }
+
+    *tuple = tuple_;
     if (tuple_ts > txn_ts && tuple_ts != txn->GetTransactionId()) {
       // 回退
       std::vector<UndoLog> undo_logs;
@@ -104,6 +112,7 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       if (!recon_tuple.has_value()) {
         return false;
       }
+
       *tuple = recon_tuple.value();
     }
 

@@ -589,6 +589,7 @@ TEST(TxnExecutorTest, GarbageCollection) {  // NOLINT
   WithTxn(txn_b, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO table1 VALUES (2, 2, 2), (3, 3, 3)"));
   WithTxn(txn_b, CommitTxn(*bustub, _var, _txn));
   BumpCommitTs(*bustub, 2);
+  //   TxnMgrDbg("after insert", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
   auto txn_watermark_at_1 = BeginTxn(*bustub, "txn_watermark_at_1");
   auto txn_watermark_at_1_id = txn_watermark_at_1->GetTransactionId();
   fmt::println(stderr, "txn_watermark_at_1_id: {}", txn_watermark_at_1_id);
@@ -599,10 +600,12 @@ TEST(TxnExecutorTest, GarbageCollection) {  // NOLINT
   WithTxn(txn2, QueryShowResult(*bustub, _var, _txn, query, IntResult{{10, 0, 0}, {11, 1, 1}, {12, 2, 2}, {13, 3, 3}}));
   WithTxn(txn2, CommitTxn(*bustub, _var, _txn));
   BumpCommitTs(*bustub, 2);
+  TxnMgrDbg("after first update commit", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
   auto txn_watermark_at_2 = BeginTxn(*bustub, "txn_watermark_at_2");
   auto txn_watermark_at_2_id = txn_watermark_at_2->GetTransactionId();
   fmt::println(stderr, "txn_watermark_at_2_id: {}", txn_watermark_at_2_id);
   BumpCommitTs(*bustub, 2);
+  TxnMgrDbg("after first2 update commit", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
   auto txn3 = BeginTxn(*bustub, "txn3");
   auto txn3_id = txn3->GetTransactionId();
   WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "UPDATE table1 SET a = a + 10 WHERE a < 12"));
@@ -610,6 +613,7 @@ TEST(TxnExecutorTest, GarbageCollection) {  // NOLINT
   WithTxn(txn3, QueryShowResult(*bustub, _var, _txn, query, IntResult{{20, 0, 0}, {12, 2, 2}, {13, 3, 3}}));
   WithTxn(txn3, CommitTxn(*bustub, _var, _txn));
   BumpCommitTs(*bustub, 2);
+  TxnMgrDbg("after second update commit", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
   auto txn_watermark_at_3 = BeginTxn(*bustub, "txn_watermark_at_3");
   auto txn_watermark_at_3_id = txn_watermark_at_3->GetTransactionId();
   fmt::println(stderr, "txn_watermark_at_3_id: {}", txn_watermark_at_3_id);

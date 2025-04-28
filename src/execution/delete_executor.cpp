@@ -53,7 +53,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       return !((meta.ts_ > TXN_START_ID || meta.ts_ > txn->GetReadTs()) && meta.ts_ != txn->GetTransactionId());
     };
     // need to generate undo log
-    if (tuple_meta.ts_ <= txn->GetReadTs()) {
+    if (tuple_meta.ts_ <= txn->GetReadTs() && tuple_meta.ts_ != txn->GetTransactionId()) {
       // generate new tuple
       // 之前一定有insert or update
       BUSTUB_ASSERT(pre_link.has_value(), "DeleteExecutor: undolink is null");
@@ -71,7 +71,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       }
       txn->AppendUndoLog(undo_log);
       txn->AppendWriteSet(plan_->GetTableOid(), delete_rid);
-    } else {
+    } else if (tuple_meta.ts_ == txn->GetTransactionId()) {
       // 事务自己对自己修改过的tuple再次修改
       BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "DeleteExectutor: 后面的事务修改了前面的事务");
       // combine undolog
@@ -80,19 +80,24 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       // 但insert可能没有undolog
       auto old_undo_log = txn_mgr->GetUndoLogOptional(pre_link.value());
       UndoLog new_undo_log;
+      UndoLink new_undo_link = pre_link.value();
       if (old_undo_log.has_value()) {
         new_undo_log = GenerateUpdatedUndoLog(&schema, &delete_tuple, nullptr, old_undo_log.value());
         txn->ModifyUndoLog(pre_link->prev_log_idx_, new_undo_log);
+        // new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum() - 1)};
       }
 
       tuple_meta.is_deleted_ = true;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
-      bool success =
-          UpdateTupleAndUndoLink(txn_mgr, delete_rid, pre_link, table_heap, txn, tuple_meta, delete_tuple, checker);
+      bool success = UpdateTupleAndUndoLink(txn_mgr, delete_rid, new_undo_link, table_heap, txn, tuple_meta,
+                                            delete_tuple, checker);
       if (!success) {
         txn->SetTainted();
         throw ExecutionException("delete conflict");
       }
+    } else {
+      txn->SetTainted();
+      throw ExecutionException("delete conflict");
     }
 
     num_deleted++;

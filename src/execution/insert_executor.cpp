@@ -109,19 +109,21 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       CheckWriteWriteConflict(transaction, meta);
       BUSTUB_ASSERT(undo_link.has_value(), "InsertExecutor: undolog is null");
       UndoLog undo_log;
+      UndoLink new_undo_link = undo_link.value();
       if (meta.ts_ != transaction->GetTransactionId()) {
         // 如果不是当前事务删除的话，需要生成新的undolog插入到undo_link中
         undo_log = GenerateNewUndoLog(&schema, nullptr, &tuple, meta.ts_, undo_link.value());
-      } else {
-        // 否则更新成一个undolog
-        auto pre_undo_log = txn_mgr->GetUndoLogOptional(undo_link.value());
-        BUSTUB_ASSERT(pre_undo_log.has_value(), "InsertExecutor: undolog is null");
-        undo_log = GenerateUpdatedUndoLog(&schema, nullptr, &tuple, pre_undo_log.value());
+        new_undo_link = {transaction->GetTransactionId(), static_cast<int>(transaction->GetUndoLogNum())};
       }
+      // else {
+      //   // 否则更新成一个undolog
+      //   auto pre_undo_log = txn_mgr->GetUndoLogOptional(undo_link.value());
+      //   BUSTUB_ASSERT(pre_undo_log.has_value(), "InsertExecutor: undolog is null");
+      //   undo_log = GenerateUpdatedUndoLog(&schema, nullptr, &tuple, pre_undo_log.value());
+      // }
 
       meta.is_deleted_ = false;
       meta.ts_ = transaction->GetTransactionTempTs();
-      UndoLink new_undo_link = {transaction->GetTransactionId(), static_cast<int>(transaction->GetUndoLogNum())};
       transaction->AppendUndoLog(undo_log);
       transaction->AppendWriteSet(plan_->GetTableOid(), rid);
       auto checker = [transaction](const TupleMeta &meta, const Tuple &tuple, RID rid,
