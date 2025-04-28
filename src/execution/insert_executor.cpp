@@ -40,28 +40,44 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   auto transaction = exec_ctx_->GetTransaction();
   auto index_vector = exec_ctx_->GetCatalog()->GetTableIndexes(table_info->name_);
   int num_inserted = 0;
+  std::vector<RID> rids;
 
   // Insert tuples from the child executor into the table heap
   Tuple child_tuple;
   RID child_rid;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
-    auto ret = table_info->table_->InsertTuple(TupleMeta{transaction->GetTransactionTempTs(), false}, child_tuple,
-                                               exec_ctx_->GetLockManager(), transaction);
-    if (!ret.has_value()) {
-      LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
-      continue;
-    }
-    child_rid = ret.value();
-
-    exec_ctx_->GetTransactionManager()->UpdateUndoLink(child_rid, std::nullopt, nullptr);
-    exec_ctx_->GetTransaction()->AppendWriteSet(table_info->oid_, child_rid);
-
-    for (auto &index : index_vector) {
-      index->index_->InsertEntry(
-          child_tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs()), ret.value(),
-          transaction);
+    // 判断是否存在索引冲突
+    for (auto &index_info : index_vector) {
+      auto key =
+          child_tuple.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs());
+      index_info->index_->ScanKey(key, &rids, transaction);
+      if (!rids.empty()) {
+        transaction->SetTainted();
+        throw ExecutionException("insert conflict");
+      }
     }
 
+    if (rids.empty()) {
+      auto ret = table_info->table_->InsertTuple(TupleMeta{transaction->GetTransactionTempTs(), false}, child_tuple,
+                                                 exec_ctx_->GetLockManager(), transaction);
+      if (!ret.has_value()) {
+        LOG_DEBUG("InsertExecutor: failed to insert tuple into table heap.");
+        continue;
+      }
+      child_rid = ret.value();
+
+      exec_ctx_->GetTransactionManager()->UpdateUndoLink(child_rid, std::nullopt, nullptr);
+      exec_ctx_->GetTransaction()->AppendWriteSet(table_info->oid_, child_rid);
+
+      for (auto &index : index_vector) {
+        auto key = child_tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs());
+        auto res = index->index_->InsertEntry(key, ret.value(), transaction);
+        if (!res) {
+          transaction->SetTainted();
+          throw ExecutionException("insert conflict");
+        }
+      }
+    }
     num_inserted++;
   }
   std::vector<Value> values{};
