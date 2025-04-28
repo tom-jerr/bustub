@@ -57,7 +57,8 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     auto txn_mgr = exec_ctx_->GetTransactionManager();
 
     // whether has write-write confilict
-    if (tuple_meta.ts_ > txn->GetTransactionId() && tuple_meta.ts_ != txn->GetTransactionId()) {
+    if ((tuple_meta.ts_ > TXN_START_ID && tuple_meta.ts_ != txn->GetTransactionId()) ||
+        (tuple_meta.ts_ > txn->GetReadTs() && tuple_meta.ts_ != txn->GetTransactionId())) {
       txn->SetTainted();
       throw ExecutionException("write-write conflict");
     }
@@ -83,7 +84,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         BUSTUB_ASSERT(pre_link.has_value(), "生成undolink失败");
       }
       auto undo_log = GenerateNewUndoLog(&schema, &old_tuple, &new_tuple, tuple_meta.ts_, pre_link.value());
-      tuple_meta.is_deleted_ = undo_log.is_deleted_;
+      tuple_meta.is_deleted_ = false;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
 
       UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
@@ -92,22 +93,24 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       UpdateTupleAndUndoLink(txn_mgr, old_rid, new_undo_link, table_heap, txn, tuple_meta, new_tuple);
     } else {
       // 事务自己对自己修改过的tuple再次修改
-      BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "后面的事务修改了前面的事务");
+      BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "UpdateExecutor: 后面的事务修改了前面的事务");
 
       // combine undolog
       auto old_link = txn_mgr->GetUndoLink(old_rid);
       if (!old_link.has_value()) {
+        tuple_meta.is_deleted_ = false;
+        tuple_meta.ts_ = txn->GetTransactionTempTs();
         // 直接修改tuple
         auto page_write_guard = table_heap->AcquireTablePageWriteLock(old_rid);
         auto page = page_write_guard.AsMut<TablePage>();
         table_heap->UpdateTupleInPlaceWithLockAcquired(tuple_meta, new_tuple, old_rid, page);
-        num_update++;
-
       } else {
         auto old_undo_log = txn_mgr->GetUndoLogOptional(old_link.value());
         BUSTUB_ASSERT(old_undo_log.has_value(), "Update的undo_log无值");
         if (old_undo_log.has_value()) {
           auto new_undo_log = GenerateUpdatedUndoLog(&schema, &old_tuple, &new_tuple, old_undo_log.value());
+          tuple_meta.is_deleted_ = false;
+          tuple_meta.ts_ = txn->GetTransactionTempTs();
 
           auto page_write_guard = table_heap->AcquireTablePageWriteLock(old_rid);
           auto page = page_write_guard.AsMut<TablePage>();

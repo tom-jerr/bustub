@@ -111,6 +111,21 @@ void TransactionManager::Abort(Transaction *txn) {
   running_txns_.RemoveTxn(txn->read_ts_);
 }
 
-void TransactionManager::GarbageCollection() { UNIMPLEMENTED("not implemented"); }
+void TransactionManager::GarbageCollection() {
+  // UNIMPLEMENTED("not implemented");
+
+  std::unique_lock lock(txn_map_mutex_);
+  // get watermark
+  timestamp_t watermark_ts = GetWatermark();
+  // delete all commited txns with commit_ts < watermark
+  for (auto it = txn_map_.begin(); it != txn_map_.end();) {
+    if (it->second->commit_ts_ != INVALID_TXN_ID &&
+        (it->second->undo_logs_.empty() || it->second->commit_ts_ < watermark_ts)) {
+      it = txn_map_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 }  // namespace bustub
