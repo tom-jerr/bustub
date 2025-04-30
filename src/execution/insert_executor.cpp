@@ -53,13 +53,14 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   Tuple child_tuple;
   RID child_rid;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
+    auto txn = exec_ctx_->GetTransaction();
     // 判断是否存在索引冲突
     for (auto &index_info : index_vector) {
       auto key =
           child_tuple.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs());
       index_info->index_->ScanKey(key, &rids, transaction);
       if (!rids.empty()) {
-        auto tuple_meta = table_info->table_->GetTupleMeta(rids[0]);
+        auto [tuple_meta, tuple, _] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), rids[0]);
         // tuple没有被删除或者另一个事务在操作产生写写冲突
         if (!tuple_meta.is_deleted_) {
           transaction->SetTainted();
@@ -84,13 +85,13 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         }
         return true;
       };
-      bool success = exec_ctx_->GetTransactionManager()->UpdateUndoLink(child_rid, undo_link, checker);
+      bool success = txn_mgr->UpdateUndoLink(child_rid, undo_link, checker);
       if (!success) {
         // 说明其他事务已经插入了这个tuple，该事务需要终止
         transaction->SetTainted();
         throw ExecutionException("insert conflict");
       }
-      exec_ctx_->GetTransaction()->AppendWriteSet(table_info->oid_, child_rid);
+      txn->AppendWriteSet(table_info->oid_, child_rid);
 
       for (auto &index : index_vector) {
         auto key = child_tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs());
@@ -104,7 +105,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       // tuple 被删除，但是索引还存在，更新tuple元数据以及Undolog
       RID rid = rids[0];
       auto table_heap = table_info->table_.get();
-      auto [meta, tuple, undo_link] = GetTupleAndUndoLink(txn_mgr, table_heap, rid);
+      auto [meta, _, undo_link] = GetTupleAndUndoLink(txn_mgr, table_heap, rid);
       // 判断是否有写写冲突
       CheckWriteWriteConflict(transaction, meta);
       BUSTUB_ASSERT(undo_link.has_value(), "InsertExecutor: undolog is null");
@@ -112,20 +113,14 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       UndoLink new_undo_link = undo_link.value();
       if (meta.ts_ != transaction->GetTransactionId()) {
         // 如果不是当前事务删除的话，需要生成新的undolog插入到undo_link中
-        undo_log = GenerateNewUndoLog(&schema, nullptr, &tuple, meta.ts_, undo_link.value());
+        undo_log = GenerateNewUndoLog(&schema, nullptr, &child_tuple, meta.ts_, new_undo_link);
         new_undo_link = {transaction->GetTransactionId(), static_cast<int>(transaction->GetUndoLogNum())};
+        transaction->AppendUndoLog(undo_log);
       }
-      // else {
-      //   // 否则更新成一个undolog
-      //   auto pre_undo_log = txn_mgr->GetUndoLogOptional(undo_link.value());
-      //   BUSTUB_ASSERT(pre_undo_log.has_value(), "InsertExecutor: undolog is null");
-      //   undo_log = GenerateUpdatedUndoLog(&schema, nullptr, &tuple, pre_undo_log.value());
-      // }
 
       meta.is_deleted_ = false;
       meta.ts_ = transaction->GetTransactionTempTs();
-      transaction->AppendUndoLog(undo_log);
-      transaction->AppendWriteSet(plan_->GetTableOid(), rid);
+
       auto checker = [transaction](const TupleMeta &meta, const Tuple &tuple, RID rid,
                                    std::optional<UndoLink> pre_link) -> bool {
         return !((meta.ts_ > TXN_START_ID || meta.ts_ > transaction->GetReadTs()) &&
@@ -137,6 +132,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         transaction->SetTainted();
         throw ExecutionException("insert conflict");
       }
+      transaction->AppendWriteSet(plan_->GetTableOid(), rid);
     }
     num_inserted++;
     rids.clear();
@@ -145,7 +141,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   values.reserve(GetOutputSchema().GetColumnCount());
   values.emplace_back(ValueFactory::GetIntegerValue(num_inserted));
   *tuple = Tuple{values, &GetOutputSchema()};
-  *rid = child_rid;
+  // *rid = child_rid;
   is_return_ = true;
   return true;
 }

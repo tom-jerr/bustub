@@ -27,6 +27,10 @@ void SeqScanExecutor::Init() {
   auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
   // Initialize the table iterator
   iter_ = std::make_unique<TableIterator>(table_info->table_->MakeIterator());
+  auto txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    txn->AppendScanPredicate(plan_->table_oid_, plan_->filter_predicate_);
+  }
 }
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
@@ -39,9 +43,7 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   while (!iter_->IsEnd()) {
     *rid = iter_->GetRID();
 
-    auto page_guard = table_info->table_->AcquireTablePageReadLock(*rid);
-    auto page = page_guard.As<TablePage>();
-    auto [meta, tuple_data] = table_info->table_->GetTupleWithLockAcquired(*rid, page);
+    auto [meta, tuple_data, pre_link] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), *rid);
     *tuple = tuple_data;
 
     ++(*iter_);
@@ -51,14 +53,13 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
 
     if (tuple_ts > txn_ts && tuple_ts != txn->GetTransactionId()) {
       std::vector<UndoLog> undo_logs;
-      std::optional<UndoLink> undo_link;
       std::optional<UndoLog> undo_log;
       // 循环获取undo_log，直到undo_log的timestamp小于等于txn的timestamp
-      undo_link = txn_mgr->GetUndoLink(*rid);
-      if (undo_link.has_value()) {
+      if (pre_link.has_value()) {
         auto min_ts = tuple_ts;
-        while (undo_link->IsValid()) {
-          undo_log = txn_mgr->GetUndoLogOptional(undo_link.value());
+        UndoLink undo_link = pre_link.value();
+        while (undo_link.IsValid()) {
+          undo_log = txn_mgr->GetUndoLogOptional(undo_link);
           if (!undo_log.has_value()) {
             break;
           }

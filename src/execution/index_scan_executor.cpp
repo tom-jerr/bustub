@@ -31,6 +31,10 @@ void IndexScanExecutor::Init() {
     // 只有在进行全表扫描的时候才进行初始化，否则会造成 leaf_guard 的读锁未释放，update 或者 insert 又要获取写锁
     index_iter_ = b_tree_->GetBeginIterator();
   }
+  auto txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    txn->AppendScanPredicate(plan_->table_oid_, plan_->filter_predicate_);
+  }
 }
 
 auto IndexScanExecutor::FullScan(Tuple *tuple, RID *rid) -> bool {
@@ -80,40 +84,47 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       continue;
     }
     *rid = result[0];
-    auto [meta_, tuple_, pre_link] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), *rid);
+    auto page_guard = table_info->table_->AcquireTablePageReadLock(*rid);
+    auto page = page_guard.As<TablePage>();
+    auto tuple_meta = table_info->table_->GetTupleMetaWithLockAcquired(*rid, page);
+
     auto txn = exec_ctx_->GetTransaction();
     auto txn_ts = txn->GetReadTs();
-    auto tuple_ts = meta_.ts_;
-    if (meta_.is_deleted_ && ((txn_ts >= tuple_ts && tuple_ts < TXN_START_ID) ||
-                              (tuple_ts > TXN_START_ID && tuple_ts == txn->GetTransactionId()))) {
+    auto tuple_ts = tuple_meta.ts_;
+    if (tuple_meta.is_deleted_ && ((txn_ts >= tuple_ts && tuple_ts < TXN_START_ID) ||
+                                   (tuple_ts > TXN_START_ID && tuple_ts == txn->GetTransactionId()))) {
       // 说明tuple被删除了
       values.clear();
       continue;
     }
 
-    *tuple = tuple_;
+    auto [meta_again, original_tuple, pre_link] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), *rid);
+    tuple_ts = meta_again.ts_;
     if (tuple_ts > txn_ts && tuple_ts != txn->GetTransactionId()) {
       // 回退
       std::vector<UndoLog> undo_logs;
       BUSTUB_ASSERT(pre_link.has_value(), "IndexScanExecutor: undolink is null");
-      auto undo_log = txn_mgr->GetUndoLogOptional(pre_link.value());
+      UndoLink undo_link = pre_link.value();
+      auto undo_log = txn_mgr->GetUndoLogOptional(undo_link);
       while (undo_log.has_value() && tuple_ts > txn_ts) {
         undo_logs.emplace_back(*undo_log);
         tuple_ts = undo_log->ts_;
-        pre_link = undo_log->prev_version_;
-        undo_log = txn_mgr->GetUndoLogOptional(pre_link.value());
+        undo_link = undo_log->prev_version_;
+        undo_log = txn_mgr->GetUndoLogOptional(undo_link);
       }
 
       if (tuple_ts > txn_ts) {
         // LOG_DEBUG("IndexScanExecutor: This key does not exist");
         return false;
       }
-      auto recon_tuple = ReconstructTuple(&table_info->schema_, tuple_, meta_, undo_logs);
+      auto recon_tuple = ReconstructTuple(&table_info->schema_, original_tuple, meta_again, undo_logs);
       if (!recon_tuple.has_value()) {
         return false;
       }
 
       *tuple = recon_tuple.value();
+    } else {
+      *tuple = original_tuple;
     }
 
     if (plan_->filter_predicate_) {
@@ -125,7 +136,7 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
     return true;
   }
-  LOG_DEBUG("IndexScanExecutor: No more tuples to scan");
+  // LOG_DEBUG("IndexScanExecutor: No more tuples to scan");
   return false;
 }
 

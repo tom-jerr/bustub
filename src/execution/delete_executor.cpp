@@ -59,17 +59,19 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       BUSTUB_ASSERT(pre_link.has_value(), "DeleteExecutor: undolink is null");
 
       auto undo_log = GenerateNewUndoLog(&schema, &delete_tuple, nullptr, tuple_meta.ts_, pre_link.value());
+
       tuple_meta.is_deleted_ = true;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
 
       UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
+      txn->AppendUndoLog(undo_log);
+
       bool success = UpdateTupleAndUndoLink(txn_mgr, delete_rid, new_undo_link, table_heap, txn, tuple_meta,
                                             delete_tuple, checker);
       if (!success) {
         txn->SetTainted();
         throw ExecutionException("delete conflict");
       }
-      txn->AppendUndoLog(undo_log);
       txn->AppendWriteSet(plan_->GetTableOid(), delete_rid);
     } else if (tuple_meta.ts_ == txn->GetTransactionId()) {
       // 事务自己对自己修改过的tuple再次修改
@@ -89,6 +91,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
       tuple_meta.is_deleted_ = true;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
+
       bool success = UpdateTupleAndUndoLink(txn_mgr, delete_rid, new_undo_link, table_heap, txn, tuple_meta,
                                             delete_tuple, checker);
       if (!success) {

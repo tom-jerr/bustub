@@ -117,7 +117,7 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
     }
     return fmt::format("INSERT INTO maintable VALUES {}", fmt::join(data, ","));
   };
-  const int trials = 50;
+  const int trials = 100;
   for (int n = 0; n < trials; n++) {
     auto bustub = std::make_unique<BusTubInstance>();
     EnsureIndexScan(*bustub);
@@ -193,7 +193,7 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
   }
 }
 
-TEST(TxnIndexTest, DISABLED_IndexConcurrentUpdateAbortTest) {  // NOLINT
+TEST(TxnIndexTest, IndexConcurrentUpdateAbortTest) {  // NOLINT
   const auto generate_sql = [](int n) -> std::string {
     return fmt::format("UPDATE maintable SET b = b + {} WHERE a = {}", 1, n);
   };
@@ -208,7 +208,7 @@ TEST(TxnIndexTest, DISABLED_IndexConcurrentUpdateAbortTest) {  // NOLINT
     return fmt::format("INSERT INTO maintable VALUES {}", fmt::join(data, ","));
   };
   const int trials = 10;
-  const int operation_cnt = 100;
+  const int operation_cnt = 200;
   for (int n = 0; n < trials; n++) {
     auto bustub = std::make_unique<BusTubInstance>();
     EnsureIndexScan(*bustub);
