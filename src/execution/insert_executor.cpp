@@ -79,6 +79,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       }
       child_rid = ret.value();
       UndoLink undo_link{INVALID_TXN_ID, 0};  // first undo_link
+      txn->AppendWriteSet(table_info->oid_, child_rid);
       auto checker = [](std::optional<UndoLink> prelink) -> bool {
         if (prelink.has_value()) {
           return prelink.value().prev_txn_ == TXN_START_ID;
@@ -91,7 +92,6 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         transaction->SetTainted();
         throw ExecutionException("insert conflict");
       }
-      txn->AppendWriteSet(table_info->oid_, child_rid);
 
       for (auto &index : index_vector) {
         auto key = child_tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs());
@@ -116,8 +116,8 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         undo_log = GenerateNewUndoLog(&schema, nullptr, &child_tuple, meta.ts_, new_undo_link);
         new_undo_link = {transaction->GetTransactionId(), static_cast<int>(transaction->GetUndoLogNum())};
         transaction->AppendUndoLog(undo_log);
+        transaction->AppendWriteSet(plan_->GetTableOid(), rid);
       }
-
       meta.is_deleted_ = false;
       meta.ts_ = transaction->GetTransactionTempTs();
 
@@ -132,7 +132,6 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         transaction->SetTainted();
         throw ExecutionException("insert conflict");
       }
-      transaction->AppendWriteSet(plan_->GetTableOid(), rid);
     }
     num_inserted++;
     rids.clear();

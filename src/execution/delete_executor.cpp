@@ -65,6 +65,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
       UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
       txn->AppendUndoLog(undo_log);
+      txn->AppendWriteSet(plan_->GetTableOid(), delete_rid);
 
       bool success = UpdateTupleAndUndoLink(txn_mgr, delete_rid, new_undo_link, table_heap, txn, tuple_meta,
                                             delete_tuple, checker);
@@ -72,7 +73,6 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         txn->SetTainted();
         throw ExecutionException("delete conflict");
       }
-      txn->AppendWriteSet(plan_->GetTableOid(), delete_rid);
     } else if (tuple_meta.ts_ == txn->GetTransactionId()) {
       // 事务自己对自己修改过的tuple再次修改
       BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "DeleteExectutor: 后面的事务修改了前面的事务");
@@ -91,13 +91,31 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
       tuple_meta.is_deleted_ = true;
       tuple_meta.ts_ = txn->GetTransactionTempTs();
+      // bool success = UpdateTupleAndUndoLink(txn_mgr, rids[i], new_undo_link, table_heap, txn, tuple_meta,
+      //                                       old_tuples[i], checker);
+      auto page_write_guard = table_heap->AcquireTablePageWriteLock(delete_rid);
+      auto page = page_write_guard.AsMut<TablePage>();
 
-      bool success = UpdateTupleAndUndoLink(txn_mgr, delete_rid, new_undo_link, table_heap, txn, tuple_meta,
-                                            delete_tuple, checker);
-      if (!success) {
+      auto [base_meta, base_tuple] = page->GetTuple(delete_rid);
+      if (!checker(base_meta, base_tuple, delete_rid, new_undo_link)) {
         txn->SetTainted();
-        throw ExecutionException("delete conflict");
+        throw ExecutionException("insert conflict");
       }
+
+      // Update tuple and tupleMeta if pass in tuple and meta are different
+      if (tuple_meta != base_meta || !IsTupleContentEqual(delete_tuple, base_tuple)) {
+        table_heap->UpdateTupleInPlaceWithLockAcquired(tuple_meta, delete_tuple, delete_rid, page);
+      }
+
+      // tuple_meta.is_deleted_ = true;
+      // tuple_meta.ts_ = txn->GetTransactionTempTs();
+
+      // bool success = UpdateTupleAndUndoLink(txn_mgr, delete_rid, new_undo_link, table_heap, txn, tuple_meta,
+      //                                       delete_tuple, checker);
+      // if (!success) {
+      //   txn->SetTainted();
+      //   throw ExecutionException("delete conflict");
+      // }
     } else {
       txn->SetTainted();
       throw ExecutionException("delete conflict");

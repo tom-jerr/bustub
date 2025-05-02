@@ -198,7 +198,7 @@ void TransactionManager::Abort(Transaction *txn) {
       };
       bool success = UpdateTupleAndUndoLink(this, rid, undo_link, table_heap, txn, new_meta, new_tuple, checker);
       if (!success) {
-        LOG_DEBUG("abort failed");
+        // LOG_DEBUG("abort failed");
         continue;
       }
     }

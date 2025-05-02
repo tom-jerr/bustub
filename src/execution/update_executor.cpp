@@ -119,13 +119,13 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
         UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
         txn->AppendUndoLog(undo_log);
+        txn->AppendWriteSet(plan_->GetTableOid(), rids[i]);
         bool success =
             UpdateTupleAndUndoLink(txn_mgr, rids[i], new_undo_link, table_heap, txn, tuple_meta, delete_tuple, checker);
         if (!success) {
           txn->SetTainted();
           throw ExecutionException("delete conflict");
         }
-        txn->AppendWriteSet(plan_->GetTableOid(), rids[i]);
       } else if (tuple_meta.ts_ == txn->GetTransactionId()) {
         // 事务自己对自己修改过的tuple再次修改
         BUSTUB_ASSERT(tuple_meta.ts_ == txn->GetTransactionId(), "DeleteExectutor: 后面的事务修改了前面的事务");
@@ -184,6 +184,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         }
         RID new_rid = ret.value();
         UndoLink undo_link{INVALID_TXN_ID, 0};  // first undo_link
+        txn->AppendWriteSet(table_info_->oid_, new_rid);
         auto checker = [](std::optional<UndoLink> prelink) -> bool {
           if (prelink.has_value()) {
             return prelink.value().prev_txn_ == TXN_START_ID;
@@ -196,7 +197,6 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
           txn->SetTainted();
           throw ExecutionException("insert conflict");
         }
-        txn->AppendWriteSet(table_info_->oid_, new_rid);
 
         for (auto &index : index_vector) {
           auto key = new_tuples[i].KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs());
@@ -221,6 +221,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
           undo_log = GenerateNewUndoLog(&schema, nullptr, &new_tuples[i], meta.ts_, undo_link.value());
           new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
           txn->AppendUndoLog(undo_log);
+          txn->AppendWriteSet(plan_->GetTableOid(), rid);
         }
 
         meta.is_deleted_ = false;
@@ -235,7 +236,6 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
           txn->SetTainted();
           throw ExecutionException("insert conflict");
         }
-        txn->AppendWriteSet(plan_->GetTableOid(), rid);
       }
     }
     is_return_ = true;
@@ -265,6 +265,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
       UndoLink new_undo_link = {txn->GetTransactionId(), static_cast<int>(txn->GetUndoLogNum())};
       txn->AppendUndoLog(undo_log);
+      txn->AppendWriteSet(plan_->GetTableOid(), rids[i]);
 
       bool success =
           UpdateTupleAndUndoLink(txn_mgr, rids[i], new_undo_link, table_heap, txn, tuple_meta, new_tuples[i], checker);
@@ -272,7 +273,6 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         txn->SetTainted();
         throw ExecutionException("update conflict");
       }
-      txn->AppendWriteSet(plan_->GetTableOid(), rids[i]);
 
     } else {
       // 事务自己对自己修改过的tuple再次修改
